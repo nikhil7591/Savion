@@ -1,8 +1,6 @@
 import React from 'react';
-import { FaGithub, FaGoogle } from 'react-icons/fa';
 
 const Welcome = ({ onViewChange }) => {
-  
   return (
     <div className="auth-card">
       <div className="auth-content">
@@ -31,25 +29,25 @@ const Welcome = ({ onViewChange }) => {
             </div>
           </div>
         </div>
-
-        <p className="divider-text">or login with email</p>
-
-        <button 
-          className="primary-btn"
-          onClick={() => onViewChange('signup')}
-        >
-          Sign up
-        </button>
-
-        <p className="switch-text">
-          You already have an account?{' '}
+        
+        <div className="auth-buttons">
           <button 
-            className="link-btn"
-            onClick={() => onViewChange('signin')}
+            className="primary-btn"
+            onClick={() => onViewChange('signup')}
           >
-            Login
+            Sign up
           </button>
-        </p>
+
+          <p className="switch-text">
+            You already have an account?{' '}
+            <button 
+              className="link-btn"
+              onClick={() => onViewChange('signin')}
+            >
+              Login
+            </button>
+          </p>
+        </div>
       </div>
     </div>
   );

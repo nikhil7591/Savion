@@ -1,168 +1,457 @@
 /* ===== Page Background ===== */
 body {
-  background: #e6f0ff; /* soft blue background */
+  background: linear-gradient(135deg, #0f172a 0%, #1a2847 50%, #2d3e5f 100%);
+  background-attachment: fixed;
   margin: 0;
   padding: 0;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* ===== Navbar ===== */
 .navbar {
   width: 96%;
   position: fixed;
-  top: 25px;
-  background: #ffffff; /* white navbar */
-  color: black; /* blue text */
+  top: 20px;
+  left: 2%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  color: #0f172a;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.8rem 2rem; /* taller navbar */
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 16px 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
   z-index: 100;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+[data-theme="dark"] .navbar {
+  background: rgba(20, 30, 50, 0.9);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #ffffff;
 }
 
 .navbar h2 {
   margin: 0;
-  font-size: 2rem;
-  color: black;
+  font-size: 22px;
+  color: #0f172a;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #0f172a 0%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+[data-theme="dark"] .navbar h2 {
+  background: linear-gradient(135deg, #ffffff 0%, #60a5fa 100%);
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .navbar .nav-links {
   display: flex;
-  gap: 1rem;
+  gap: 14px;
 }
 
 .navbar .nav-links span,
 .navbar .nav-links button {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   background: transparent;
   border: none;
-  color: black;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  transition: 0.3s;
+  color: #0f172a;
+  padding: 10px 16px;
+  border-radius: 10px;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  letter-spacing: 0.3px;
+  font-size: 13px;
+}
+
+[data-theme="dark"] .navbar .nav-links span,
+[data-theme="dark"] .navbar .nav-links button {
+  color: #ffffff;
 }
 
 .navbar .nav-links span:hover,
 .navbar .nav-links button:hover {
-  background: rgba(24,144,255,0.1);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(6, 182, 212, 0.1));
+  color: #3b82f6;
+  transform: translateY(-2px);
+}
+
+[data-theme="dark"] .navbar .nav-links span:hover,
+[data-theme="dark"] .navbar .nav-links button:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
 }
 
 /* ===== Dashboard / Profile Container ===== */
-/* .dashboard-container {
-  max-width: 500px;
+.dashboard-container {
+  max-width: 600px;
   width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8rem 2rem 2rem 2rem; 
-  min-height: 100vh;
-} */
-
-/* ===== Profile / Edit Card ===== */
-/* .profile-card {
-  background: #ffffff;
-  padding: 2rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-  width: 100%;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 1.2rem;
-  transition: 0.3s;
-}
-
-.profile-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 25px rgba(0,0,0,0.12);
-} */
-/* ===== Profile / Edit Card ===== */
-/* ===== Dashboard / Profile Container ===== */
-.dashboard-container {
-  max-width: 500px;
-  width: 100%;
-  margin: 0 auto;             /* no top margin */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 6rem 2rem 2rem 2rem; /* space from top for navbar, smaller than before */
+  padding: 140px 20px 40px 20px;
   min-height: 100vh;
 }
 
 /* ===== Profile / Edit Card ===== */
 .profile-card {
-  background: #ffffff;
-  padding: 2.5rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  padding: 32px;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.6);
   width: 100%;
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  transition: 0.3s;
-  margin-top: 0; /* remove extra margin so it’s close to navbar */
+  gap: 20px;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-top: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+[data-theme="dark"] .profile-card {
+  background: rgba(20, 30, 50, 0.9);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(59, 130, 246, 0.1);
+}
 
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 .profile-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 25px rgba(0,0,0,0.12);
+  transform: translateY(-8px);
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+[data-theme="dark"] .profile-card:hover {
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(59, 130, 246, 0.1);
+}
+
+/* ===== Profile Info Display ===== */
+.profile-card p {
+  font-size: 15px;
+  color: #374151;
+  margin: 8px 0;
+  font-weight: 500;
+  line-height: 1.6;
+  transition: color 0.3s ease;
+}
+
+[data-theme="dark"] .profile-card p {
+  color: #ffffff;
+}
+
+.profile-card p b {
+  color: #0f172a;
+  font-weight: 700;
+  transition: color 0.3s ease;
+}
+
+[data-theme="dark"] .profile-card p b {
+  color: #ffffff;
+}
 
 /* ===== Labels and Inputs ===== */
 .profile-card label {
   display: flex;
   flex-direction: column;
-  font-weight: 500;
+  font-weight: 700;
   text-align: left;
-  color: #333;
+  color: #0f172a;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  transition: color 0.3s ease;
+}
+
+[data-theme="dark"] .profile-card label {
+  color: #ffffff;
 }
 
 .profile-card input {
-  padding: 0.7rem;
+  padding: 12px 14px;
   width: 100%;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  font-size: 1rem;
+  border-radius: 10px;
+  border: 2px solid #e5e7eb;
+  font-size: 14px;
+  font-weight: 500;
+  background: linear-gradient(135deg, #f9fafb, #f3f4f6);
+  transition: all 0.3s ease;
+  margin-top: 6px;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .profile-card input {
+  color: #ffffff;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.profile-card input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+[data-theme="dark"] .profile-card input:focus {
+  background: rgba(20, 30, 50, 0.95);
+}
+
+.profile-card input::placeholder {
+  color: #d1d5db;
 }
 
 /* ===== Buttons ===== */
 .edit-btn, .save-btn {
   width: 100%;
-  padding: 0.8rem;
+  padding: 14px;
   border-radius: 12px;
   border: none;
   color: white;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: 0.3s;
-  margin-top: 1rem;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-top: 8px;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
-.edit-btn { background: linear-gradient(135deg, #1890ff, #40a9ff); }
-.save-btn { background: linear-gradient(135deg, #0077b6, #0096c7); }
+.edit-btn { 
+  background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+  box-shadow: 0 8px 20px rgba(59, 130, 246, 0.2);
+}
+
+.save-btn { 
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.2);
+}
 
 .edit-btn:hover, .save-btn:hover {
-  opacity: 0.95;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(24,144,255,0.4);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.35);
+}
+
+.edit-btn:active, .save-btn:active {
+  transform: translateY(-1px);
 }
 
 /* ===== Responsive ===== */
 @media(max-width:768px){
   .dashboard-container {
-    padding: 4rem 1rem 2rem 1rem;
+    padding: 120px 16px 32px 16px;
   }
+  
+  .navbar {
+    width: 94%;
+    left: 3%;
+    padding: 14px 20px;
+  }
+  
   .navbar h2 {
-    font-size: 1.8rem;
+    font-size: 20px;
   }
+  
+  .profile-card {
+    padding: 24px;
+    gap: 16px;
+  }
+  
   .edit-btn, .save-btn {
     width: 100%;
+    padding: 12px;
+    font-size: 13px;
   }
+}
+
+/* Enhanced Profile Page Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleInCenter {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+/* Apply animations to profile elements */
+.navbar {
+  animation: slideInDown 0.5s ease-out;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.navbar h2 {
+  animation: fadeIn 0.6s ease-out 0.1s both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.navbar .nav-links {
+  animation: slideInRight 0.6s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.profile-card {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.profile-card:hover {
+  animation: float 2s ease-in-out infinite;
+}
+
+.profile-card label {
+  animation: fadeInUp 0.5s ease-out;
+  transition: all 0.3s ease;
+}
+
+.profile-card input {
+  animation: scaleInCenter 0.4s ease-out;
+  transition: all 0.3s ease;
+}
+
+.profile-card input:hover {
+  animation: glow 1.5s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 15px rgba(59, 130, 246, 0.6); }
+}
+
+.profile-card input:focus {
+  animation: focus-glow 0.4s ease-out;
+}
+
+@keyframes focus-glow {
+  from {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  to {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+}
+
+.edit-btn, .save-btn {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: slideInUp 0.5s ease-out;
+}
+
+.edit-btn:hover, .save-btn:hover {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.edit-btn:active, .save-btn:active {
+  animation: click 0.2s ease-out;
+}
+
+@keyframes click {
+  from { transform: scale(1.02); }
+  to { transform: scale(0.98); }
+}
+
+.profile-card p {
+  animation: fadeInUp 0.5s ease-out;
+  transition: color 0.3s ease;
+}
+
+.profile-card p b {
+  transition: color 0.3s ease;
+}
+
+/* Smooth transitions for all interactive elements */
+.navbar .nav-links span,
+.navbar .nav-links button {
+  transition: all 0.3s ease;
+}
+
+.navbar .nav-links span:hover,
+.navbar .nav-links button:hover {
+  animation: bounce 0.6s ease-in-out;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }

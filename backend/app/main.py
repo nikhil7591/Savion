@@ -1,43 +1,202 @@
-from fastapi import FastAPI, Depends, UploadFile, File, HTTPException, Query, WebSocket, WebSocketDisconnect
+# app/main.py
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, WebSocket, WebSocketDisconnect, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 import io, os, tempfile, subprocess, re
 import pandas as pd
-from sqlmodel import select, Session
-from pydantic import BaseModel
-from .db import init_db, get_session
-from .models import Transaction
+from pydantic import BaseModel, Field
+
+from contextlib import asynccontextmanager
+from asyncio import CancelledError
+
+from . import db
+from .models import Transaction, User
 from .ml import categorize_descriptions, forecast, detect_anomalies
-from .agents import ConversationalAgent, CategorizationAgent, PredictionAgent, AnomalyAgent, GoalSettingAgent, NotificationAgent, RiskAssessmentAgent, PredictiveAnalyticsAgent
+from .agents import (
+    ConversationalAgent, CategorizationAgent, PredictionAgent,
+    AnomalyAgent, GoalSettingAgent, NotificationAgent,
+    RiskAssessmentAgent, PredictiveAnalyticsAgent
+)
 from .gemini_ai import get_gemini_assistant
 from .websocket_handler import websocket_endpoint, manager
-from . import auth
+from .advanced_analytics import build_advanced_analytics
 
-# ------------ FastAPI App ------------
-app = FastAPI(title="Savion Backend", version="0.2.0")
 
-allowed = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:5174").split(",")
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+from bson import ObjectId
+import bcrypt
+import jwt
+import json
+
+# ====================================================================================
+#                         APPLICATION LIFESPAN (CLEAN START / SHUTDOWN)
+# ====================================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Modern FastAPI lifespan to prevent CancelledError on Windows and ensure
+    database initialization/cleanup happen reliably.
+    """
+    try:
+        print("🚀 Starting Savion Backend...")
+        # initialize DB (synchronous or asynchronous depending on your db module)
+        try:
+            db.init_db()
+            print("✅ DB initialized.")
+        except Exception as e:
+            print(f"⚠️ DB init error: {e}")
+        yield
+    except CancelledError:
+        print("⚠ Server interrupted. Cleaning up...")
+    finally:
+        try:
+            db.close_db()
+            print("🔌 DB connection closed.")
+        except Exception as e:
+            print(f"⚠️ DB close error: {e}")
+        print("✅ Shutdown complete.")
+
+
+app = FastAPI(
+    title="Savion Backend",
+    version="0.2.0",
+    lifespan=lifespan
+)
+
+# ====================================================================================
+#                                  CORS CONFIG
+# ====================================================================================
+
+allowed = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:5174"
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins="*" if "ALL" in allowed else allowed,
-    
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def on_startup():
-    init_db()
+# ====================================================================================
+#                                HEALTH CHECK
+# ====================================================================================
 
 @app.get("/api/health")
 def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
 
-# ------------ Schemas ------------
+# ====================================================================================
+#                               AUTH SECTION
+# ====================================================================================
+
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+ALGORITHM = "HS256"
+
+class SignUpRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+
+class SignInRequest(BaseModel):
+    email: str
+    password: str
+
+class AuthResponse(BaseModel):
+    access_token: str
+    user: dict
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {
+        "user_id": user_id,
+        "email": email,
+        "exp": datetime.utcnow() + timedelta(days=30)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@app.post("/api/auth/signup", response_model=AuthResponse)
+def signup(req: SignUpRequest):
+    try:
+        existing_user = db.get_user_by_email(req.email)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        hashed_pwd = hash_password(req.password)
+        user_data = {
+            "email": req.email,
+            "name": req.name,
+            "password_hash": hashed_pwd,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        user_id = db.create_user(user_data)
+        token = create_access_token(str(user_id), req.email)
+        return AuthResponse(
+            access_token=token,
+            user={"id": str(user_id), "email": req.email, "name": req.name}
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Signup failed: {str(e)}")
+
+@app.post("/api/auth/signin", response_model=AuthResponse)
+def signin(req: SignInRequest):
+    try:
+        user = db.get_user_by_email(req.email)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        if not verify_password(req.password, user.get("password_hash", "")):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        token = create_access_token(str(user["_id"]), req.email)
+        return AuthResponse(
+            access_token=token,
+            user={"id": str(user["_id"]), "email": user["email"], "name": user.get("name", "")}
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Signin failed: {str(e)}")
+
+@app.get("/api/auth/verify")
+def verify_auth(token: str = Query(...)):
+    try:
+        payload = verify_token(token)
+        user = db.get_user_by_id(payload["user_id"])
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return {
+            "valid": True,
+            "user": {"id": str(user["_id"]), "email": user["email"], "name": user.get("name", "")}
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Token verification failed")
+
+# ====================================================================================
+#                            TRANSACTION SCHEMAS & CRUD
+# ====================================================================================
+
 class TxIn(BaseModel):
     user_id: str
     type: str  # 'income' or 'expense'
@@ -46,55 +205,72 @@ class TxIn(BaseModel):
     date: date
 
 class TxOut(TxIn):
-    id: int
+    id: Optional[str] = Field(alias="_id", default=None)
     created_at: datetime
 
-# ------------ CRUD Transaction APIs ------------
+    class Config:
+        populate_by_name = True
+
 @app.get("/api/transactions", response_model=List[TxOut])
-def list_transactions(user_id: str = Query(...), session: Session = Depends(get_session)):
-    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-    return session.exec(stmt).all()
+def list_transactions(user_id: str = Query(...)):
+    transactions = db.get_transactions(user_id)
+    for tx in transactions:
+        if "_id" in tx:
+            tx["_id"] = str(tx["_id"])
+    return transactions
 
-@app.post("/api/transactions", response_model=TxOut)
-def create_transaction(tx: TxIn, session: Session = Depends(get_session)):
-    item = Transaction(**tx.model_dump())
-    session.add(item)
-    session.commit()
-    session.refresh(item)
-    return item
+@app.post("/api/transactions", response_model=dict)
+def create_transaction(tx: TxIn):
+    transaction_data = {
+        "user_id": tx.user_id,
+        "type": tx.type,
+        "category": tx.category,
+        "amount": tx.amount,
+        "date": tx.date if isinstance(tx.date, datetime) else datetime.combine(tx.date, datetime.min.time()),
+    }
+    result = db.create_transaction(transaction_data)
+    result["_id"] = str(result["_id"])
+    return result
 
-@app.put("/api/transactions/{tx_id}", response_model=TxOut)
-def update_transaction(tx_id: int, tx: TxIn, session: Session = Depends(get_session)):
-    item = session.get(Transaction, tx_id)
-    if not item:
-        raise HTTPException(404, "Transaction not found")
-    for k, v in tx.model_dump().items():
-        setattr(item, k, v)
-    session.add(item)
-    session.commit()
-    session.refresh(item)
-    return item
+@app.put("/api/transactions/{tx_id}", response_model=dict)
+def update_transaction(tx_id: str, tx: TxIn):
+    try:
+        update_data = {
+            "user_id": tx.user_id,
+            "type": tx.type,
+            "category": tx.category,
+            "amount": tx.amount,
+            "date": tx.date if isinstance(tx.date, datetime) else datetime.combine(tx.date, datetime.min.time()),
+        }
+        result = db.update_transaction(tx_id, update_data)
+        if not result:
+            raise HTTPException(404, "Transaction not found")
+        result["_id"] = str(result["_id"])
+        return result
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 @app.delete("/api/transactions/{tx_id}")
-def delete_transaction(tx_id: int, session: Session = Depends(get_session)):
-    item = session.get(Transaction, tx_id)
-    if not item:
-        raise HTTPException(404, "Transaction not found")
-    session.delete(item)
-    session.commit()
-    return {"deleted": tx_id}
+def delete_transaction(tx_id: str):
+    try:
+        success = db.delete_transaction(tx_id)
+        if not success:
+            raise HTTPException(404, "Transaction not found")
+        return {"deleted": tx_id}
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
-# ------------ Enhanced CSV Upload/Export ------------
+# ====================================================================================
+#                         ENHANCED CSV UPLOAD / EXPORT
+# ====================================================================================
+
 @app.post("/api/upload_csv")
 async def upload_csv(
     file: UploadFile = File(...),
     user_id: Optional[str] = Query(None),
-    session: Session = Depends(get_session),
 ):
-    """
-    Enhanced CSV upload with better error handling and flexibility
-    """
-    if not file.filename.lower().endswith('.csv'):
+    """Enhanced CSV upload with better error handling and flexibility"""
+    if not file.filename or not file.filename.lower().endswith('.csv'):
         raise HTTPException(400, "Please upload a CSV file")
     
     try:
@@ -110,7 +286,7 @@ async def upload_csv(
                     io.BytesIO(content), 
                     encoding=encoding,
                     engine='python',
-                    sep=None,  # Auto-detect separator
+                    sep=None,
                     skipinitialspace=True,
                     na_values=['', 'NA', 'N/A', 'null', 'NULL', 'None'],
                     keep_default_na=True
@@ -210,17 +386,12 @@ async def upload_csv(
             if pd.isna(value):
                 return None
             
-            # Convert to string and clean
             amount_str = str(value).strip()
-            
-            # Remove common currency symbols and formatting
             amount_str = re.sub(r'[₹$€£,\s]', '', amount_str)
             
-            # Handle parentheses for negative amounts
             if amount_str.startswith('(') and amount_str.endswith(')'):
                 amount_str = '-' + amount_str[1:-1]
             
-            # Extract numeric value
             match = re.search(r'-?\d+(?:\.\d+)?', amount_str)
             if match:
                 try:
@@ -236,13 +407,11 @@ async def upload_csv(
             
             type_str = str(value).strip().lower()
             
-            # Income indicators
             income_keywords = [
                 'income', 'credit', 'deposit', 'received', 'inflow', 
                 'salary', 'bonus', 'refund', 'cr', 'in'
             ]
             
-            # Expense indicators  
             expense_keywords = [
                 'expense', 'debit', 'withdrawal', 'spent', 'outflow',
                 'payment', 'dr', 'out', 'paid'
@@ -256,8 +425,7 @@ async def upload_csv(
                 if keyword in type_str:
                     return "expense"
             
-            # If amount is positive, assume income, negative assume expense
-            return "expense"  # default
+            return "expense"
         
         def clean_category(value):
             """Clean category values"""
@@ -271,14 +439,12 @@ async def upload_csv(
                 return datetime.now().date()
             
             try:
-                # Try pandas date parsing
                 parsed_date = pd.to_datetime(value, dayfirst=True, errors='coerce')
                 if not pd.isna(parsed_date):
                     return parsed_date.date()
             except:
                 pass
             
-            # Fallback to current date
             return datetime.now().date()
         
         # Process each row
@@ -287,21 +453,18 @@ async def upload_csv(
         
         for idx, row in df.iterrows():
             try:
-                # Extract and clean data
                 raw_amount = row[found_columns["amount"]]
                 amount = clean_amount(raw_amount)
                 
                 if amount is None or amount == 0:
                     errors.append({
-                        "row": int(idx + 2),  # +2 for 1-indexed and header
+                        "row": int(idx + 2),
                         "error": f"Invalid amount: '{raw_amount}'"
                     })
                     continue
                 
-                # Determine transaction type
                 type_val = clean_transaction_type(row[found_columns["type"]])
                 
-                # For negative amounts, flip the type
                 if amount < 0:
                     amount = abs(amount)
                     type_val = "expense" if type_val == "income" else "income"
@@ -309,7 +472,6 @@ async def upload_csv(
                 category = clean_category(row[found_columns["category"]])
                 transaction_date = clean_date(row[found_columns["date"]])
                 
-                # Get user ID
                 tx_user_id = user_id
                 if user_col:
                     tx_user_id = str(row[user_col]).strip()
@@ -321,16 +483,15 @@ async def upload_csv(
                     })
                     continue
                 
-                # Create transaction
-                transaction = Transaction(
-                    user_id=tx_user_id,
-                    type=type_val,
-                    category=category,
-                    amount=float(amount),
-                    date=transaction_date
-                )
+                transaction_data = {
+                    "user_id": tx_user_id,
+                    "type": type_val,
+                    "category": category,
+                    "amount": float(amount),
+                    "date": datetime.combine(transaction_date, datetime.min.time()) if isinstance(transaction_date, date) else transaction_date,
+                }
                 
-                session.add(transaction)
+                db.create_transaction(transaction_data)
                 successful_inserts += 1
                 
             except Exception as e:
@@ -340,19 +501,13 @@ async def upload_csv(
                 })
                 continue
         
-        # Commit successful transactions
-        try:
-            session.commit()
-            print(f"Successfully inserted {successful_inserts} transactions")
-        except Exception as e:
-            session.rollback()
-            raise HTTPException(500, f"Database error: {str(e)}")
+        print(f"Successfully inserted {successful_inserts} transactions")
         
         return {
             "success": True,
             "inserted": successful_inserts,
             "total_rows": len(df),
-            "errors": errors[:10],  # Limit error list
+            "errors": errors[:10],
             "error_count": len(errors)
         }
         
@@ -363,14 +518,18 @@ async def upload_csv(
         raise HTTPException(500, f"Failed to process CSV: {str(e)}")
 
 @app.get("/api/export_csv")
-def export_csv(user_id: str = Query(...), session: Session = Depends(get_session)):
-    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-    items = session.exec(stmt).all()
-    if not items:
+def export_csv(user_id: str = Query(...)):
+    transactions = db.get_transactions(user_id)
+    if not transactions:
         return {"csv": ""}
+    
     df = pd.DataFrame([{
-        "Type": it.type, "Category": it.category, "Amount": it.amount, "Date": it.date.isoformat()
-    } for it in items])
+        "Type": tx.get("type"), 
+        "Category": tx.get("category"), 
+        "Amount": tx.get("amount"), 
+        "Date": tx.get("date").isoformat() if isinstance(tx.get("date"), datetime) else tx.get("date")
+    } for tx in transactions])
+    
     return {"csv": df.to_csv(index=False)}
 
 @app.get("/api/csv_template")
@@ -396,7 +555,27 @@ def get_csv_template():
         }
     }
 
-# ------------ Analytics ------------
+# ====================================================================================
+#                                    ANALYTICS
+# ====================================================================================
+
+# ====================== ADVANCED ANALYTICS (NEW MODULE) ======================
+
+@app.get("/api/advanced_analytics")
+def api_advanced_analytics(user_id: str = Query(...)):
+    """
+    Compute full advanced analytics based on MongoDB transactions.
+    Returns risk assessment, predictions, and weekly insights.
+    """
+    try:
+        analytics = build_advanced_analytics(user_id)
+        return analytics
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Advanced Analytics Error: {str(e)}")
+
+
 class SummaryOut(BaseModel):
     total_income: float
     total_expense: float
@@ -408,17 +587,21 @@ def summary(
     user_id: str = Query(...),
     from_: Optional[date] = Query(None, alias="from"),
     to: Optional[date] = Query(None, alias="to"),
-    session: Session = Depends(get_session),
 ):
-    stmt = select(Transaction).where(Transaction.user_id == user_id)
+    transactions = db.get_transactions(user_id)
+    
     if from_:
-        stmt = stmt.where(Transaction.date >= from_)
+        from_dt = datetime.combine(from_, datetime.min.time())
+        transactions = [t for t in transactions if isinstance(t.get("date"), datetime) and t["date"] >= from_dt]
+    
     if to:
-        stmt = stmt.where(Transaction.date <= to)
-    items = session.exec(stmt).all()
-    income = sum(it.amount for it in items if it.type == "income")
-    expense = sum(it.amount for it in items if it.type == "expense")
-    series = [it.amount if it.type == "expense" else -it.amount for it in items]
+        to_dt = datetime.combine(to, datetime.max.time())
+        transactions = [t for t in transactions if isinstance(t.get("date"), datetime) and t["date"] <= to_dt]
+    
+    income = sum(t["amount"] for t in transactions if t.get("type") == "income")
+    expense = sum(t["amount"] for t in transactions if t.get("type") == "expense")
+    series = [t["amount"] if t.get("type") == "expense" else -t["amount"] for t in transactions]
+    
     return {
         "total_income": income,
         "total_expense": expense,
@@ -427,10 +610,9 @@ def summary(
     }
 
 @app.get("/api/predict")
-def predict(user_id: str = Query(...), session: Session = Depends(get_session)):
-    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-    items = session.exec(stmt).all()
-    vals = [it.amount if it.type == "expense" else 0.0 for it in items]
+def predict(user_id: str = Query(...)):
+    transactions = db.get_transactions(user_id)
+    vals = [t["amount"] if t.get("type") == "expense" else 0.0 for t in transactions]
     fc = forecast(vals, periods=4)
     return {"forecast": fc}
 
@@ -448,7 +630,10 @@ class CategorizeIn(BaseModel):
 def categorize(inp: CategorizeIn):
     return {"categories": categorize_descriptions(inp.descriptions)}
 
-# ------------ Enhanced Voice Input Processing ------------
+# ====================================================================================
+#                          ENHANCED VOICE INPUT PROCESSING
+# ====================================================================================
+
 def parse_relative_date(day_word: str) -> str:
     """Parse relative dates like 'last monday'"""
     days = {
@@ -460,7 +645,7 @@ def parse_relative_date(day_word: str) -> str:
         today = datetime.now().date()
         target_day = days[day_word.lower()]
         days_back = (today.weekday() - target_day + 7) % 7
-        if days_back == 0:  # If today is the target day, go back a week
+        if days_back == 0:
             days_back = 7
         target_date = today - timedelta(days=days_back)
         return target_date.isoformat()
@@ -478,7 +663,7 @@ def parse_day_name(day_word: str) -> str:
         today = datetime.now().date()
         target_day = days[day_word.lower()]
         days_ahead = (target_day - today.weekday()) % 7
-        if days_ahead == 0:  # If today is the target day
+        if days_ahead == 0:
             return today.isoformat()
         target_date = today + timedelta(days=days_ahead)
         return target_date.isoformat()
@@ -486,27 +671,24 @@ def parse_day_name(day_word: str) -> str:
     return datetime.now().date().isoformat()
 
 def parse_expense_voice(text: str) -> dict:
-    """
-    Enhanced voice parsing with better natural language understanding
-    """
+    """Enhanced voice parsing with better natural language understanding"""
     text = text.lower().strip()
     print(f"Parsing voice input: '{text}'")
     
-    # Initialize result
     result = {
-        "type": "expense",  # default
+        "type": "expense",
         "category": None,
         "amount": None,
         "date": None,
     }
     
-    # 1. Extract Amount - Look for various patterns
+    # 1. Extract Amount
     amount_patterns = [
-        r'(\d+(?:\.\d{1,2})?)\s*(?:rupees?|rs\.?|₹|dollars?|\$)',  # "50 rupees", "100 rs"
-        r'(?:rupees?|rs\.?|₹|dollars?|\$)\s*(\d+(?:\.\d{1,2})?)',   # "rs 50", "₹ 100"
-        r'(?:spent|paid|cost|costs|worth)\s+(?:about\s+)?(?:rupees?\s*)?(\d+(?:\.\d{1,2})?)',  # "spent 50"
-        r'(?:for\s+)?(\d+(?:\.\d{1,2})?)\s+(?:bucks|only)',       # "50 bucks", "100 only"
-        r'\b(\d+(?:\.\d{1,2})?)\b',  # fallback: any number
+        r'(\d+(?:\.\d{1,2})?)\s*(?:rupees?|rs\.?|₹|dollars?|\$)',
+        r'(?:rupees?|rs\.?|₹|dollars?|\$)\s*(\d+(?:\.\d{1,2})?)',
+        r'(?:spent|paid|cost|costs|worth)\s+(?:about\s+)?(?:rupees?\s*)?(\d+(?:\.\d{1,2})?)',
+        r'(?:for\s+)?(\d+(?:\.\d{1,2})?)\s+(?:bucks|only)',
+        r'\b(\d+(?:\.\d{1,2})?)\b',
     ]
     
     for pattern in amount_patterns:
@@ -527,35 +709,21 @@ def parse_expense_voice(text: str) -> dict:
             result["type"] = "income"
             break
     
-    # Expense keywords can override if found later
     for keyword in expense_keywords:
         if keyword in text:
             result["type"] = "expense"
             break
     
-    # 3. Extract Category - Enhanced keyword mapping
+    # 3. Extract Category
     category_keywords = {
-        # Food related
         "food": ["food", "eat", "restaurant", "pizza", "burger", "lunch", "dinner", "breakfast", "meal", "snack"],
         "groceries": ["grocery", "groceries", "vegetables", "fruits", "shopping for food", "market"],
-        
-        # Transport
         "transport": ["uber", "ola", "taxi", "bus", "metro", "train", "petrol", "fuel", "auto", "rickshaw"],
-        
-        # Shopping
         "shopping": ["amazon", "flipkart", "myntra", "clothes", "shopping", "online", "purchase"],
-        
-        # Bills & Utilities  
         "utilities": ["electricity", "water", "gas", "internet", "wifi", "phone", "mobile", "recharge"],
         "rent": ["rent", "house rent", "apartment"],
-        
-        # Entertainment
         "entertainment": ["movie", "netflix", "spotify", "game", "entertainment", "fun", "party"],
-        
-        # Healthcare
         "healthcare": ["doctor", "medicine", "hospital", "medical", "pharmacy", "health"],
-        
-        # Income categories
         "salary": ["salary", "pay", "paycheck", "wage"],
         "freelance": ["freelance", "client", "project", "work"],
     }
@@ -568,7 +736,7 @@ def parse_expense_voice(text: str) -> dict:
         if result["category"]:
             break
     
-    # 4. Extract Date - Enhanced patterns
+    # 4. Extract Date
     date_patterns = [
         (r'yesterday', lambda: (datetime.now().date() - timedelta(days=1)).isoformat()),
         (r'today', lambda: datetime.now().date().isoformat()),
@@ -580,29 +748,45 @@ def parse_expense_voice(text: str) -> dict:
         match = re.search(pattern, text)
         if match:
             try:
-                result["date"] = date_func(match) if callable(date_func) else date_func()
+                # if lambda expects match, call with match; else call directly
+                if hasattr(date_func, "__call__"):
+                    # if pattern has capture groups, pass match
+                    try:
+                        res = date_func(match)
+                    except TypeError:
+                        res = date_func()
+                    result["date"] = res
+                else:
+                    result["date"] = date_func()
                 break
             except:
                 continue
     
-    # Set default category if not found
     if not result["category"]:
         result["category"] = "Other"
     
-    # Set default date if not found  
     if not result["date"]:
         result["date"] = datetime.now().date().isoformat()
     
     print(f"Parsed result: {result}")
     return result
 
-# ------------ Voice Input with Enhanced Processing ------------
-from faster_whisper import WhisperModel
+# ====================================================================================
+#                       VOICE INPUT + WHISPER TRANSCRIPTION
+# ====================================================================================
+
+try:
+    from faster_whisper import WhisperModel
+except Exception:
+    print("⚠️ faster_whisper not installed. Voice transcription will be disabled.")
+    WhisperModel = None
 
 _whisper_model = None
 
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
+    if WhisperModel is None:
+        raise HTTPException(status_code=503, detail="Voice transcription is not available")
     global _whisper_model
     if _whisper_model is None:
         model_size = os.getenv("WHISPER_MODEL_SIZE", "small")
@@ -611,13 +795,11 @@ async def transcribe_audio(file: UploadFile = File(...)):
         except Exception as e:
             raise HTTPException(500, f"Failed to load Whisper model: {str(e)}")
     
-    # Create temporary file with proper extension
     file_ext = os.path.splitext(file.filename)[1] if file.filename else ".webm"
     
     with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as in_tmp:
         content = await file.read()
         
-        # Check if file has content
         if len(content) == 0:
             raise HTTPException(400, "Empty audio file received")
         
@@ -626,11 +808,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
     
     print(f"Received audio file: {len(content)} bytes, extension: {file_ext}")
     
-    # Try multiple conversion approaches
     converted_path = None
     conversion_successful = False
     
-    # Approach 1: Direct conversion to WAV
     try:
         converted_path = in_path + ".wav"
         subprocess.check_call([
@@ -642,7 +822,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
             converted_path
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         
-        # Verify the converted file exists and has content
         if os.path.exists(converted_path) and os.path.getsize(converted_path) > 0:
             conversion_successful = True
             print("FFmpeg conversion successful")
@@ -652,13 +831,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
         if converted_path and os.path.exists(converted_path):
             os.remove(converted_path)
     
-    # Approach 2: Try with different FFmpeg options if first failed
     if not conversion_successful:
         try:
             converted_path = in_path + "_alt.wav"
             subprocess.check_call([
                 "ffmpeg", "-y",
-                "-f", "webm",  # Force input format
+                "-f", "webm",
                 "-i", in_path,
                 "-ar", "16000",
                 "-ac", "1",
@@ -675,29 +853,24 @@ async def transcribe_audio(file: UploadFile = File(...)):
             if converted_path and os.path.exists(converted_path):
                 os.remove(converted_path)
     
-    # Approach 3: Use original file if conversion failed
     if not conversion_successful:
         print("Using original file format for transcription")
         converted_path = in_path
     
     try:
-        # Verify file exists and has content before transcription
         if not os.path.exists(converted_path) or os.path.getsize(converted_path) == 0:
             raise HTTPException(400, "Audio file is empty or corrupted")
         
         print(f"Attempting transcription on: {converted_path} ({os.path.getsize(converted_path)} bytes)")
         
-        # Transcribe audio with compatible parameters only
         segments, info = _whisper_model.transcribe(
             converted_path,
             beam_size=3,
             language="en", 
             condition_on_previous_text=False,
             temperature=0.0
-            # Removed incompatible parameters: compression_ratio_threshold, logprob_threshold, no_speech_threshold
         )
         
-        # Collect all transcribed text
         transcribed_segments = list(segments)
         text = " ".join([seg.text for seg in transcribed_segments]).strip()
         
@@ -706,7 +879,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
         if not text:
             raise HTTPException(400, "No speech detected in audio")
         
-        # Parse the transcribed text for transaction fields
         fields = parse_expense_voice(text)
         
         return {
@@ -718,15 +890,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
         
     except Exception as e:
         print(f"Transcription error: {e}")
-        # Provide more specific error messages
         if "Invalid data" in str(e):
             raise HTTPException(400, "Audio file format not supported or corrupted. Please try recording again.")
         elif "No speech" in str(e):
             raise HTTPException(400, "No speech detected. Please speak clearly and try again.")
         elif "unexpected keyword argument" in str(e):
-            # Handle version compatibility issues
             try:
-                # Fallback with minimal parameters
                 segments, info = _whisper_model.transcribe(converted_path, language="en")
                 transcribed_segments = list(segments)
                 text = " ".join([seg.text for seg in transcribed_segments]).strip()
@@ -747,7 +916,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
             raise HTTPException(500, f"Transcription failed: {str(e)}")
         
     finally:
-        # Cleanup temporary files
         try:
             if os.path.exists(in_path):
                 os.remove(in_path)
@@ -756,81 +924,77 @@ async def transcribe_audio(file: UploadFile = File(...)):
         except Exception as e:
             print(f"Cleanup error: {e}")
 
-# Also add this endpoint to check audio file formats
 @app.post("/api/test_audio")
 async def test_audio_format(file: UploadFile = File(...)):
     """Test endpoint to check audio file format and content"""
     content = await file.read()
-    
     return {
         "filename": file.filename,
         "content_type": file.content_type,
         "size_bytes": len(content),
         "first_bytes": content[:20].hex() if content else "empty",
     }
-    
-# ------------ Notification & Alert Helper ------------
+
+# ====================================================================================
+#                         NOTIFICATION & INVESTMENT ADVICE
+# ====================================================================================
+
 def send_notification(user_id: str, message: str):
-    # TODO: Integrate with email, SMS, push, or websocket
     print(f"Notify {user_id}: {message}")
 
 def send_alert(user_id: str, message: str):
-    # TODO: Integrate with alarm/alert system
     print(f"ALERT for {user_id}: {message}")
 
-# ------------ CRUD Transaction APIs (Upgrade) ------------
-@app.post("/api/transactions", response_model=TxOut)
-def create_transaction(tx: TxIn, session: Session = Depends(get_session)):
-    item = Transaction(**tx.model_dump())
-    session.add(item)
-    session.commit()
-    session.refresh(item)
-    # Notify user on addition
-    send_notification(item.user_id, f"New transaction added: {item.type} {item.amount} for {item.category} on {item.date}")
-    # Check balance and alert if negative
-    stmt = select(Transaction).where(Transaction.user_id == item.user_id)
-    items = session.exec(stmt).all()
-    income = sum(it.amount for it in items if it.type == "income")
-    expense = sum(it.amount for it in items if it.type == "expense")
-    balance = income - expense
-    if balance < 0:
-        send_alert(item.user_id, f"Your balance is negative: {balance}")
-    return item
-
-# ------------ Investment Advice Endpoint ------------
 @app.get("/api/investment_advice")
-def investment_advice(user_id: str = Query(...), session: Session = Depends(get_session)):
-    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-    items = session.exec(stmt).all()
-    income = sum(it.amount for it in items if it.type == "income")
-    expense = sum(it.amount for it in items if it.type == "expense")
+def investment_advice(user_id: str = Query(...)):
+    transactions = db.get_transactions(user_id)
+    income = sum(t["amount"] for t in transactions if t.get("type") == "income")
+    expense = sum(t["amount"] for t in transactions if t.get("type") == "expense")
     balance = income - expense
-    # Simple advice logic
+    
+    advice = []
     if balance < 0:
-        advice = "Your balance is negative. Reduce expenses or increase income. Consider emergency fund."
+        advice.append("Your balance is negative. Reduce expenses or increase income. Consider emergency fund.")
     elif expense > income * 0.8:
-        advice = "High spending detected. Try to save at least 20% of your income."
+        advice.append("High spending detected. Try to save at least 20% of your income.")
     else:
-        advice = "Good financial health. Consider investing in SIPs or mutual funds."
-    # Future prediction (reuse forecast)
-    vals = [it.amount if it.type == "expense" else 0.0 for it in items]
+        advice.append("Good financial health. Consider investing in SIPs or mutual funds.")
+    
+    if balance > 0:
+        if balance > income * 0.1:
+            advice.append("Excellent savings rate! Consider diversifying investments.")
+        else:
+            advice.append("Good start! Try to increase your savings rate gradually.")
+    
+    vals = [t["amount"] if t.get("type") == "expense" else 0.0 for t in transactions]
     fc = forecast(vals, periods=4)
+    
     return {
         "advice": advice,
         "forecast_next_months": fc,
-        "current_balance": balance
+        "current_balance": balance,
+        "savings_rate": (balance / income * 100) if income > 0 else 0,
+        "recommendations": [
+            "Set up automatic savings transfers",
+            "Review and optimize your expense categories",
+            "Consider tax-saving investment options",
+            "Build an emergency fund of 3-6 months expenses"
+        ]
     }
 
-# ------------ Conversational AI Agent Endpoints ------------
+# ====================================================================================
+#                          CONVERSATIONAL AGENTS & GEMINI AI
+# ====================================================================================
+
 class ChatQueryIn(BaseModel):
     user_id: str
     query: str
 
 @app.post("/api/chat")
-def chat_with_agent(inp: ChatQueryIn, session: Session = Depends(get_session)):
+def chat_with_agent(inp: ChatQueryIn):
     """Main conversational interface for all agentic features"""
     try:
-        agent = ConversationalAgent(session)
+        agent = ConversationalAgent()
         response = agent.process_query(inp.user_id, inp.query)
         return response
     except Exception as e:
@@ -847,16 +1011,15 @@ def chat_with_agent(inp: ChatQueryIn, session: Session = Depends(get_session)):
             ]
         }
 
-# ------------ Gemini AI Enhanced Chat Endpoints ------------
 @app.post("/api/gemini/chat")
-async def gemini_chat(inp: ChatQueryIn, session: Session = Depends(get_session)):
+async def gemini_chat(inp: ChatQueryIn):
     """Enhanced chat using Gemini AI with user's financial data"""
     try:
         gemini_assistant = get_gemini_assistant()
         if gemini_assistant.is_available():
-            response = await gemini_assistant.process_query(inp.user_id, inp.query, session)
+            response = await gemini_assistant.process_query(inp.user_id, inp.query)
         else:
-            response = gemini_assistant._fallback_response(inp.user_id, inp.query, session)
+            response = gemini_assistant._fallback_response(inp.user_id, inp.query)
         return response
     except Exception as e:
         print(f"Gemini chat error: {e}")
@@ -868,12 +1031,12 @@ async def gemini_chat(inp: ChatQueryIn, session: Session = Depends(get_session))
         }
 
 @app.get("/api/gemini/analyze/{user_id}")
-async def gemini_analyze_data(user_id: str, session: Session = Depends(get_session)):
+async def gemini_analyze_data(user_id: str):
     """Get comprehensive data analysis using Gemini AI"""
     try:
         gemini_assistant = get_gemini_assistant()
         if gemini_assistant.is_available():
-            analysis = gemini_assistant.analyze_data_patterns(user_id, session)
+            analysis = gemini_assistant.analyze_data_patterns(user_id)
         else:
             analysis = {"error": "Gemini AI not configured. Please set GEMINI_API_KEY environment variable."}
         return analysis
@@ -907,8 +1070,8 @@ def gemini_status():
         gemini_assistant = get_gemini_assistant()
         return {
             "available": gemini_assistant.is_available(),
-            "configured": gemini_assistant.is_configured,
-            "api_key_set": bool(gemini_assistant.api_key),
+            "configured": getattr(gemini_assistant, "is_configured", False),
+            "api_key_set": bool(getattr(gemini_assistant, "api_key", None)),
             "message": "Gemini AI is ready" if gemini_assistant.is_available() else "Gemini AI not configured. Set GEMINI_API_KEY environment variable."
         }
     except Exception as e:
@@ -919,7 +1082,10 @@ def gemini_status():
             "message": f"Error checking Gemini AI status: {str(e)}"
         }
 
-# ------------ WebSocket Real-time Chat ------------
+# ====================================================================================
+#                                WEBSOCKET (REAL-TIME)
+# ====================================================================================
+
 @app.websocket("/ws/{user_id}")
 async def websocket_route(websocket: WebSocket, user_id: str):
     """WebSocket endpoint for real-time chat with Gemini AI"""
@@ -943,218 +1109,138 @@ async def send_notification_to_user(user_id: str, notification: dict):
     except Exception as e:
         return {"error": f"Failed to send notification: {str(e)}"}
 
-# ------------ Enhanced Categorization Agent ------------
-class CategorizeTransactionIn(BaseModel):
-    user_id: str
-    transaction_id: int
-    new_category: str
+# ====================================================================================
+#                                ALERTS & INSIGHTS
+# ====================================================================================
 
-@app.post("/api/categorize_transaction")
-def categorize_transaction(inp: CategorizeTransactionIn, session: Session = Depends(get_session)):
-    """Enhanced transaction categorization with correction support"""
-    try:
-        agent = CategorizationAgent()
-        result = agent.correct_classification(inp.transaction_id, inp.new_category)
-        
-        # Update the transaction in database
-        transaction = session.get(Transaction, inp.transaction_id)
-        if transaction and transaction.user_id == inp.transaction_id:
-            transaction.category = inp.new_category
-            session.add(transaction)
-            session.commit()
-            session.refresh(transaction)
-            result["transaction"] = transaction
-        
-        return result
-    except Exception as e:
-        return {"error": f"Failed to categorize transaction: {str(e)}"}
-
-# ------------ Spending Prediction Agent ------------
-@app.get("/api/predict_spending")
-def predict_spending(user_id: str = Query(...), periods: int = Query(4), session: Session = Depends(get_session)):
-    """Enhanced spending prediction with LSTM models"""
-    try:
-        stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-        transactions = session.exec(stmt).all()
-        
-        expense_values = [t.amount for t in transactions if t.type == 'expense']
-        
-        agent = PredictionAgent()
-        result = agent.predict_spending(user_id, expense_values, periods)
-        
-        return result
-    except Exception as e:
-        return {"error": f"Failed to predict spending: {str(e)}"}
-
-# ------------ Anomaly Detection Agent ------------
-@app.get("/api/detect_anomalies")
-def detect_anomalies_endpoint(user_id: str = Query(...), days: int = Query(30), session: Session = Depends(get_session)):
-    """Enhanced anomaly detection using Isolation Forest"""
-    try:
-        # Get transactions from last N days
-        start_date = datetime.now().date() - timedelta(days=days)
-        stmt = select(Transaction).where(
-            Transaction.user_id == user_id,
-            Transaction.date >= start_date
-        ).order_by(Transaction.date)
-        transactions = session.exec(stmt).all()
-        
-        agent = AnomalyAgent()
-        result = agent.detect_anomalies(user_id, transactions)
-        
-        return result
-    except Exception as e:
-        return {"error": f"Failed to detect anomalies: {str(e)}"}
-
-# ------------ Goal Setting Agent ------------
-class CreateGoalIn(BaseModel):
-    user_id: str
-    goal_amount: float
-    timeframe_months: int
-
-class ExpenseReductionIn(BaseModel):
-    user_id: str
-    target_reduction_percent: float
-
-@app.post("/api/create_savings_goal")
-def create_savings_goal(inp: CreateGoalIn, session: Session = Depends(get_session)):
-    """Create a savings goal with recommendations"""
-    try:
-        agent = GoalSettingAgent(session)
-        result = agent.create_savings_goal(inp.user_id, inp.goal_amount, inp.timeframe_months)
-        return result
-    except Exception as e:
-        return {"error": f"Failed to create savings goal: {str(e)}"}
-
-@app.post("/api/expense_reduction_suggestions")
-def get_expense_reduction_suggestions(inp: ExpenseReductionIn, session: Session = Depends(get_session)):
-    """Get suggestions for reducing expenses"""
-    try:
-        agent = GoalSettingAgent(session)
-        result = agent.get_expense_reduction_suggestions(inp.user_id, inp.target_reduction_percent)
-        return result
-    except Exception as e:
-        return {"error": f"Failed to get expense reduction suggestions: {str(e)}"}
-
-# ------------ Proactive Notification Agent ------------
 @app.get("/api/check_alerts")
-def check_alerts(user_id: str = Query(...), session: Session = Depends(get_session)):
-    """Check for spending alerts and notifications"""
+def check_alerts(user_id: str = Query(...)):
+    """Check for financial alerts for a user"""
     try:
-        agent = NotificationAgent(session)
-        alerts = agent.check_spending_alerts(user_id)
-        return {"alerts": alerts, "alert_count": len(alerts)}
+        user = db.get_user_by_id(user_id)
+        if not user:
+            return {"alerts": [], "message": "User not found"}
+        
+        txs = db.get_transactions(user_id)
+        total_expense = sum(t["amount"] for t in txs if t["type"] == "expense")
+        total_income = sum(t["amount"] for t in txs if t["type"] == "income")
+        balance = total_income - total_expense
+        
+        alerts = []
+        if balance < 0:
+            alerts.append({
+                "type": "warning",
+                "message": f"Your account balance is negative: ₹{abs(balance):.2f}",
+                "severity": "high"
+            })
+        
+        daily_avg_expense = total_expense / max(1, len(txs)) if txs else 0
+        recent_expenses = [t["amount"] for t in txs[-5:] if t["type"] == "expense"]
+        if recent_expenses and max(recent_expenses) > daily_avg_expense * 2:
+            alerts.append({
+                "type": "info",
+                "message": "Recent spending exceeds your average",
+                "severity": "medium"
+            })
+        
+        if total_income == 0 and len(txs) > 0:
+            alerts.append({
+                "type": "warning",
+                "message": "No income recorded. Track your earnings!",
+                "severity": "medium"
+            })
+        
+        return {"alerts": alerts, "total_alerts": len(alerts)}
     except Exception as e:
-        return {"error": f"Failed to check alerts: {str(e)}"}
+        return {"alerts": [], "error": str(e), "total_alerts": 0}
 
 @app.get("/api/weekly_insights")
-def get_weekly_insights(user_id: str = Query(...), session: Session = Depends(get_session)):
-    """Get weekly insights and recommendations"""
+def weekly_insights(user_id: str = Query(...)):
+    """Get weekly spending insights for a user"""
     try:
-        agent = NotificationAgent(session)
-        insights = agent.generate_weekly_insights(user_id)
+        txs = db.get_transactions(user_id)
+        now = datetime.utcnow()
+        week_ago = now - timedelta(days=7)
+        
+        # flexible ISO parsing for stored date strings or datetimes
+        def to_dt(d):
+            if isinstance(d, datetime):
+                return d
+            try:
+                # try isoformat string
+                return datetime.fromisoformat(d.replace('Z', '+00:00'))
+            except Exception:
+                try:
+                    return pd.to_datetime(d)
+                except Exception:
+                    return None
+        
+        weekly_txs = [
+            t for t in txs 
+            if (dt := to_dt(t.get("date"))) is not None and dt >= week_ago
+        ]
+        
+        total_expense = sum(t["amount"] for t in weekly_txs if t["type"] == "expense")
+        total_income = sum(t["amount"] for t in weekly_txs if t["type"] == "income")
+        
+        category_breakdown = {}
+        for t in weekly_txs:
+            if t["type"] == "expense":
+                cat = t.get("category", "Other")
+                category_breakdown[cat] = category_breakdown.get(cat, 0) + t["amount"]
+        
+        top_category = max(category_breakdown.items(), key=lambda x: x[1])[0] if category_breakdown else "None"
+        
+        daily_expenses = {}
+        for t in weekly_txs:
+            if t["type"] == "expense":
+                date_key = (t["date"][:10] if isinstance(t.get("date"), str) else t["date"].strftime("%Y-%m-%d"))
+                daily_expenses[date_key] = daily_expenses.get(date_key, 0) + t["amount"]
+        
+        spending_trend = "unknown"
+        if len(daily_expenses) > 1:
+            vals = list(daily_expenses.values())
+            spending_trend = "increasing" if vals[-1] > vals[0] else "stable"
+        
+        insights = {
+            "week_total_expense": total_expense,
+            "week_total_income": total_income,
+            "week_balance": total_income - total_expense,
+            "average_daily_expense": total_expense / 7 if total_expense > 0 else 0,
+            "top_category": top_category,
+            "category_breakdown": category_breakdown,
+            "daily_breakdown": daily_expenses,
+            "transaction_count": len(weekly_txs),
+            "spending_trend": spending_trend
+        }
+        
         return insights
     except Exception as e:
-        return {"error": f"Failed to generate weekly insights: {str(e)}"}
-
-# ------------ Risk Assessment Agent ------------
-@app.get("/api/risk_assessment")
-def get_risk_assessment(user_id: str = Query(...), session: Session = Depends(get_session)):
-    """Get comprehensive risk assessment"""
-    try:
-        agent = RiskAssessmentAgent(session)
-        assessment = agent.comprehensive_risk_assessment(user_id)
-        return assessment
-    except Exception as e:
-        return {"error": f"Failed to assess risk: {str(e)}"}
-
-# ------------ Predictive Analytics Agent ------------
-@app.get("/api/predictive_analytics")
-def get_predictive_analytics(user_id: str = Query(...), session: Session = Depends(get_session)):
-    """Get comprehensive predictive analytics"""
-    try:
-        agent = PredictiveAnalyticsAgent(session)
-        predictions = agent.comprehensive_prediction(user_id)
-        return predictions
-    except Exception as e:
-        return {"error": f"Failed to generate predictions: {str(e)}"}
-
-# ------------ Advanced Analytics Dashboard ------------
-@app.get("/api/advanced_analytics")
-def get_advanced_analytics(user_id: str = Query(...), session: Session = Depends(get_session)):
-    """Get comprehensive advanced analytics including risk and predictions"""
-    try:
-        # Get risk assessment
-        risk_agent = RiskAssessmentAgent(session)
-        risk_assessment = risk_agent.comprehensive_risk_assessment(user_id)
-        
-        # Get predictive analytics
-        prediction_agent = PredictiveAnalyticsAgent(session)
-        predictions = prediction_agent.comprehensive_prediction(user_id)
-        
-        # Get weekly insights
-        notification_agent = NotificationAgent(session)
-        weekly_insights = notification_agent.generate_weekly_insights(user_id)
-        
         return {
-            "risk_assessment": risk_assessment,
-            "predictions": predictions,
-            "weekly_insights": weekly_insights,
-            "generated_at": datetime.utcnow().isoformat()
+            "week_total_expense": 0,
+            "week_total_income": 0,
+            "week_balance": 0,
+            "average_daily_expense": 0,
+            "top_category": "None",
+            "category_breakdown": {},
+            "daily_breakdown": {},
+            "transaction_count": 0,
+            "error": str(e),
+            "spending_trend": "unknown"
         }
-    except Exception as e:
-        return {"error": f"Failed to generate advanced analytics: {str(e)}"}
 
-# ------------ Investment Advice Enhancement ------------
-@app.get("/api/investment_advice")
-def investment_advice(user_id: str = Query(...), session: Session = Depends(get_session)):
-    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-    items = session.exec(stmt).all()
-    income = sum(it.amount for it in items if it.type == "income")
-    expense = sum(it.amount for it in items if it.type == "expense")
-    balance = income - expense
-    
-    # Enhanced advice logic with agentic insights
-    advice = []
-    if balance < 0:
-        advice.append("Your balance is negative. Reduce expenses or increase income. Consider emergency fund.")
-    elif expense > income * 0.8:
-        advice.append("High spending detected. Try to save at least 20% of your income.")
-    else:
-        advice.append("Good financial health. Consider investing in SIPs or mutual funds.")
-    
-    # Add AI-powered recommendations
-    if balance > 0:
-        if balance > income * 0.1:  # More than 10% of income saved
-            advice.append("Excellent savings rate! Consider diversifying investments.")
-        else:
-            advice.append("Good start! Try to increase your savings rate gradually.")
-    
-    # Future prediction (reuse forecast)
-    vals = [it.amount if it.type == "expense" else 0.0 for it in items]
-    fc = forecast(vals, periods=4)
-    
-    return {
-        "advice": advice,
-        "forecast_next_months": fc,
-        "current_balance": balance,
-        "savings_rate": (balance / income * 100) if income > 0 else 0,
-        "recommendations": [
-            "Set up automatic savings transfers",
-            "Review and optimize your expense categories",
-            "Consider tax-saving investment options",
-            "Build an emergency fund of 3-6 months expenses"
-        ]
-    }
+# ====================================================================================
+#                                 USER FEEDBACK
+# ====================================================================================
 
-# ------------ User Feedback Endpoint ------------
 class FeedbackIn(BaseModel):
     user_id: str
     feedback: str
 
 @app.post("/api/feedback")
 def user_feedback(inp: FeedbackIn):
-    # Store feedback, notify admin, etc.
     print(f"Feedback from {inp.user_id}: {inp.feedback}")
     send_notification(inp.user_id, "Thank you for your feedback!")
     return {"success": True, "message": "Feedback received"}
+
+# End of file

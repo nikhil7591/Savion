@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
-// helper for fetch with error handling
+// --- Helper for fetch with error handling ---
 async function handleResponse(r) {
   if (!r.ok) {
     const text = await r.text();
@@ -9,9 +9,20 @@ async function handleResponse(r) {
   return r.json();
 }
 
+// --- Normalize MongoDB _id => id ---
+function normalizeTxList(list) {
+  return list.map((tx) => ({
+    ...tx,
+    id: tx.id || tx._id, // always ensure id exists
+  }));
+}
+
+// --- TRANSACTIONS API ---
+
 export async function listTx(userId) {
   const r = await fetch(`${API_BASE}/api/transactions?user_id=${userId}`);
-  return handleResponse(r);
+  const data = await handleResponse(r);
+  return normalizeTxList(data);
 }
 
 export async function createTx(tx) {
@@ -24,6 +35,8 @@ export async function createTx(tx) {
 }
 
 export async function updateTx(id, tx) {
+  if (!id) throw new Error("Missing transaction ID for update");
+
   const r = await fetch(`${API_BASE}/api/transactions/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -33,11 +46,15 @@ export async function updateTx(id, tx) {
 }
 
 export async function deleteTx(id) {
+  if (!id) throw new Error("Missing transaction ID for delete");
+
   const r = await fetch(`${API_BASE}/api/transactions/${id}`, {
     method: "DELETE",
   });
   return handleResponse(r);
 }
+
+// --- SUMMARY / FORECAST ---
 
 export async function getSummary(userId, from, to) {
   const q = new URLSearchParams({
@@ -45,6 +62,7 @@ export async function getSummary(userId, from, to) {
     ...(from && { from }),
     ...(to && { to }),
   });
+
   const r = await fetch(`${API_BASE}/api/summary?${q.toString()}`);
   return handleResponse(r);
 }
@@ -54,9 +72,12 @@ export async function getForecast(userId) {
   return handleResponse(r);
 }
 
+// --- CSV UPLOAD / EXPORT / TEMPLATE ---
+
 export async function uploadCSV(userId, file) {
   const fd = new FormData();
   fd.append("file", file);
+
   const r = await fetch(`${API_BASE}/api/upload_csv?user_id=${userId}`, {
     method: "POST",
     body: fd,
@@ -70,8 +91,9 @@ export async function exportCSV(userId, from, to) {
     ...(from && { from }),
     ...(to && { to }),
   });
+
   const r = await fetch(`${API_BASE}/api/export_csv?${q.toString()}`);
-  return handleResponse(r); // returns { csv: "..." }
+  return handleResponse(r);
 }
 
 export async function downloadTemplate() {
@@ -79,7 +101,8 @@ export async function downloadTemplate() {
   return handleResponse(r);
 }
 
-// Gemini AI Chat functions
+// --- GEMINI AI CHAT FUNCTIONS ---
+
 export async function geminiChat(userId, query) {
   const r = await fetch(`${API_BASE}/api/gemini/chat`, {
     method: "POST",
@@ -106,7 +129,8 @@ export async function getConversationSummary(userId) {
   return handleResponse(r);
 }
 
-// WebSocket status
+// --- WEB SOCKET STATUS ---
+
 export async function getWebSocketStatus() {
   const r = await fetch(`${API_BASE}/api/websocket/status`);
   return handleResponse(r);

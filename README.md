@@ -1,69 +1,238 @@
 # Savion - Smart Personal Finance Assistant
 
-## Project Overview
+A comprehensive full-stack personal finance management application powered by AI. Savion helps users track expenses, manage investments, receive personalized financial advice, and make data-driven financial decisions.
 
-Savion is an intelligent personal finance assistant designed to help users manage their finances effectively. It offers a suite of features, including expense tracking, financial forecasting, and advanced data analysis. The application leverages AI-powered agents to provide personalized insights and recommendations, making it a powerful tool for financial planning.
+## 🌟 Features
 
-This project was recently migrated from Supabase to a self-hosted MongoDB solution for authentication and data persistence, ensuring greater control and security over user data. It also integrates with Google's Gemini API for its advanced AI capabilities.
+- **AI-Powered Financial Assistant**: Chatbot powered by Google Gemini AI for personalized financial advice
+- **Expense Tracking**: Monitor and categorize your spending habits
+- **Investment Management**: Track investments and receive investment advice
+- **Advanced Analytics**: Detailed financial analytics and insights
+- **Real-time Alerts**: Get notified about important financial events
+- **Voice Input**: Hands-free expense logging with voice commands
+- **User Authentication**: Secure sign up and login with Supabase
+- **User Profile Management**: Customize your profile and preferences
+- **Dashboard**: Comprehensive overview of your financial status
 
-## Tech Stack
+## 🛠️ Tech Stack
 
-- **Frontend:** React, Vite
-- **Backend:** Node.js, Express
-- **Database:** MongoDB
-- **Authentication:** bcrypt, JSON Web Tokens (JWT)
-- **AI:** Google Gemini API
+### Backend
+- **Framework**: FastAPI (Python)
+- **Database**: MongoDB
+- **AI**: Google Gemini AI
+- **Authentication**: Supabase
+- **Features**: Machine Learning, Web Sockets, Real-time Notifications
 
-## Setup Instructions
+### Frontend
+- **Framework**: React with Vite
+- **Styling**: Tailwind CSS
+- **UI Components**: Custom components with CSS modules
+- **API Integration**: Axios for HTTP requests
+- **Build Tool**: Vite
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    ```
+## 📋 Prerequisites
 
-2.  **Install dependencies for the frontend:**
-    ```bash
-    cd savion
-    npm install
-    ```
+- Python 3.8+
+- Node.js 14+
+- npm or yarn
+- MongoDB instance (local or cloud)
+- Google Gemini API key
+- Supabase account and credentials
 
-3.  **Install dependencies for the backend:**
-    ```bash
-    # Assuming backend is in the root or a separate directory
-    npm install
-    ```
+## 🚀 Installation
 
-4.  **Set up environment variables:**
-    Create a `.env` file in the root of the project and add the following:
-    ```
-    MONGO_URI=your_mongodb_connection_string
-    JWT_SECRET=your_jwt_secret
-    GEMINI_API_KEY=your_gemini_api_key
-    ```
+### Backend Setup
 
-5.  **Run the application:**
-    - **Frontend:** `npm run dev`
-    - **Backend:** `node server.js` (or your entry file)
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
 
-## Authentication Flow (MongoDB)
+2. Create a virtual environment:
+   ```bash
+   python -m venv .venv
+   ```
 
-Authentication is handled via a custom implementation using MongoDB, bcrypt, and JWT.
+3. Activate the virtual environment:
+   - **Windows**:
+     ```bash
+     .\.venv\Scripts\Activate.ps1
+     ```
+   - **macOS/Linux**:
+     ```bash
+     source .venv/bin/activate
+     ```
 
--   **User Registration:** New users are registered through the `/api/auth/register` endpoint. Passwords are encrypted using `bcrypt` before being stored in the database.
--   **User Login:** Users log in via the `/api/auth/login` endpoint. Upon successful authentication, a JWT is generated and returned to the client.
--   **Protected Routes:** Routes requiring authentication are protected by a middleware that verifies the JWT sent in the `Authorization` header.
--   **Session Management:** User sessions are tracked in the database, storing the JWT, device information, and IP address for security purposes.
+4. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Gemini API Usage
+5. Set up environment variables:
+   - Create a `.env` file in the backend directory
+   - Add your MongoDB URI, Gemini API key, and other credentials
 
-The Google Gemini API is used for various AI-powered features, including:
+6. Run the setup script (optional):
+   ```bash
+   python setup_gemini.py
+   ```
 
--   **Chatbot:** The chatbot uses the `gemini-pro` model to provide intelligent responses to user queries.
--   **Financial Analysis:** The application leverages Gemini to analyze financial data and provide users with insights and recommendations.
+7. Start the backend server:
+   - **Windows (PowerShell)**:
+     ```bash
+     .\start_server.ps1
+     ```
+   - **Windows (Batch)**:
+     ```bash
+     .\start_server.bat
+     ```
+   - **macOS/Linux**:
+     ```bash
+     python -m uvicorn app.main:app --reload
+     ```
 
-All Gemini API requests are handled through the backend to ensure the API key is kept secure. The relevant endpoints are:
+### Frontend Setup
 
--   `/api/gemini/chat`
--   `/api/gemini/analyze/:userId`
--   `/api/gemini/clear-history/:userId`
--   `/api/gemini/conversation-summary/:userId`
+1. Navigate to the frontend directory:
+   ```bash
+   cd savion
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Create a `.env.local` file with your Supabase credentials:
+   ```
+   VITE_SUPABASE_URL=your_supabase_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   VITE_API_BASE_URL=http://localhost:8000
+   ```
+
+4. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+## 📁 Project Structure
+
+```
+Savion/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # Main FastAPI application
+│   │   ├── models.py            # Data models
+│   │   ├── schemas.py           # Pydantic schemas
+│   │   ├── db.py                # Database configuration
+│   │   ├── gemini_ai.py         # Gemini AI integration
+│   │   ├── finance_agent.py     # Finance agent logic
+│   │   ├── investment.py        # Investment management
+│   │   ├── advanced_analytics.py# Analytics features
+│   │   ├── alerts.py            # Alert system
+│   │   ├── notifications.py     # Notification system
+│   │   ├── ml.py                # Machine learning models
+│   │   ├── websocket_handler.py # WebSocket handling
+│   │   └── agents.py            # AI agents
+│   ├── config.py                # Configuration settings
+│   ├── requirements.txt         # Python dependencies
+│   ├── setup_gemini.py         # Gemini setup script
+│   ├── test_*.py               # Test files
+│   └── sample_finance_data.csv # Sample data
+│
+└── savion/
+    ├── src/
+    │   ├── components/
+    │   │   ├── Chatbot.jsx
+    │   │   ├── DashBoard.jsx
+    │   │   ├── UserDashboard.jsx
+    │   │   ├── AdvancedAnalytics.jsx
+    │   │   ├── ExpenseDashboard.jsx
+    │   │   ├── SignIn.jsx
+    │   │   ├── SignUp.jsx
+    │   │   ├── UserProfile.jsx
+    │   │   ├── VoiceInput.jsx
+    │   │   └── Welcome.jsx
+    │   ├── api/
+    │   │   ├── auth.js          # Authentication API
+    │   │   └── client.js        # API client
+    │   ├── App.jsx
+    │   ├── main.jsx
+    │   └── SupabaseClient.js
+    ├── public/
+    ├── package.json
+    ├── vite.config.js
+    └── tailwind.config.js
+```
+
+## 🔧 Environment Variables
+
+### Backend (.env)
+```
+# MongoDB
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/dbname
+
+# Gemini AI
+GEMINI_API_KEY=your_gemini_api_key
+
+# Supabase
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_key
+
+# Server
+SERVER_HOST=localhost
+SERVER_PORT=8000
+```
+
+### Frontend (.env.local)
+```
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+## 📝 Testing
+
+Run backend tests:
+```bash
+cd backend
+python -m pytest test_*.py
+```
+
+Or run individual tests:
+```bash
+python test_gemini.py
+python test_mongodb.py
+python test_auth.py
+python test_investment_advice.py
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For support, email support@savion.com or open an issue in the repository.
+
+## 🎯 Roadmap
+
+- [ ] Mobile app (iOS/Android)
+- [ ] Budget planning tools
+- [ ] Tax optimization recommendations
+- [ ] Cryptocurrency tracking
+- [ ] Collaborative budgeting for couples
+- [ ] Integration with banking APIs
+- [ ] Advanced ML models for financial predictions
+
+---
+
+**Last Updated**: December 2025

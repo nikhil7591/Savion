@@ -1,49 +1,57 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Welcome from './components/Welcome';
-import SignUp from './components/SignUp';
-import SignIn from './components/SignIn';
-import ExpenseDashboard from './components/ExpenseDashboard';
-import EditProfile from './components/EditProfile';
-import './App.css';
+import React, { useEffect, useState } from "react";
+import { auth } from "./api/auth.js";
+import Welcome from "./components/Welcome";
+import SignUp from "./components/SignUp";
+import SignIn from "./components/SignIn";
+import ExpenseDashboard from "./components/ExpenseDashboard";
+import EditProfile from "./components/EditProfile";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import "./App.css";
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
+  const [currentView, setCurrentView] = useState("welcome");
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState('welcome');
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("theme") || "light";
+  });
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    if (token && storedUser) {
-      setIsAuthenticated(true);
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem('user');
-      }
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (auth.isAuthenticated()) {
+      setUser(auth.getUser());
+      setLoading(false);
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
+
+    const subscription = auth.onAuthStateChange((_event, user) => {
+      setUser(user);
+      setLoading(false);
+    });
+
+    return () => {
+      if (subscription?.unsubscribe) {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
-  const handleLogin = (authUser) => {
-    setIsAuthenticated(true);
-    setUser(authUser || null);
-    if (authUser) {
-      localStorage.setItem('user', JSON.stringify(authUser));
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setIsAuthenticated(false);
-    setUser(null);
-    setCurrentView('welcome');
-  };
-
   const handleViewChange = (view) => setCurrentView(view);
+
+  const handleLogout = async () => {
+    auth.logout();
+    setUser(null);
+    setCurrentView("welcome");
+  };
+
+  const toggleTheme = () => {
+    setTheme(theme === "light" ? "dark" : "light");
+  };
 
   if (loading) {
     return (
@@ -53,12 +61,30 @@ function App() {
     );
   }
 
-  if (isAuthenticated && user) {
+  if (user) {
     return (
-      <Router>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
-          <Route path="/" element={<ExpenseDashboard user={user} logout={handleLogout} />} />
-          <Route path="/edit-profile" element={<EditProfile goBack={() => window.history.back()} />} />
+          {/* Dashboard */}
+          <Route
+            path="/"
+            element={<ExpenseDashboard user={user} logout={handleLogout} theme={theme} toggleTheme={toggleTheme} />}
+          />
+
+          {/* Edit Profile with goBack */}
+          <Route
+            path="/edit-profile"
+            element={
+              <EditProfile
+                user={user}
+                goBack={(updatedUser) => {
+                  if (updatedUser) setUser(updatedUser);
+                  window.history.back();
+                }}
+                theme={theme}
+              />
+            }
+          />
         </Routes>
       </Router>
     );
@@ -66,9 +92,9 @@ function App() {
 
   return (
     <div className="app-container">
-      {currentView === 'welcome' && <Welcome onViewChange={handleViewChange} />}
-      {currentView === 'signup' && <SignUp onViewChange={handleViewChange} onLogin={handleLogin} />}
-      {currentView === 'signin' && <SignIn onViewChange={handleViewChange} onLogin={handleLogin} />}
+      {currentView === "welcome" && <Welcome onViewChange={handleViewChange} />}
+      {currentView === "signup" && <SignUp onViewChange={handleViewChange} />}
+      {currentView === "signin" && <SignIn onViewChange={handleViewChange} />}
     </div>
   );
 }

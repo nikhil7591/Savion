@@ -223,75 +223,95 @@ const AdvancedAnalytics = ({ userId, onClose }) => {
                 </div>
               ) : (
                 <>
-                  <div className="life-events">
-                    <h3>🔮 Life Event Predictions</h3>
-                    <div className="event-predictions">
-                      {Object.entries(predictions.life_events).map(([event, data]) => (
-                        <div key={event} className="event-prediction">
-                          <h4>{event.charAt(0).toUpperCase() + event.slice(1)}</h4>
-                          <div className="prediction-details">
-                            <p><strong>Probability:</strong> {(data.probability * 100).toFixed(1)}%</p>
-                            <p><strong>Timeline:</strong> {data.timeline}</p>
-                            <p><strong>Financial Impact:</strong> ₹{data.financial_impact.toLocaleString()}</p>
-                            <p><strong>Preparation:</strong> {data.preparation_needed}</p>
+                  {predictions.life_events && Object.keys(predictions.life_events).length > 0 && (
+                    <div className="life-events">
+                      <h3>🔮 Life Event Predictions</h3>
+                      <div className="event-predictions">
+                        {Object.entries(predictions.life_events).map(([event, data]) => (
+                          <div key={event} className="event-prediction">
+                            <h4>{event.charAt(0).toUpperCase() + event.slice(1)}</h4>
+                            <div className="prediction-details">
+                              <p><strong>Probability:</strong> {(data.probability * 100).toFixed(1)}%</p>
+                              <p><strong>Timeline:</strong> {data.timeline}</p>
+                              <p><strong>Financial Impact:</strong> ₹{data.financial_impact.toLocaleString()}</p>
+                              <p><strong>Preparation:</strong> {data.preparation_needed}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="financial-trajectory">
                     <h3>📈 Financial Trajectory</h3>
                     <div className="trajectory-summary">
-                      <div className="trend-item">
-                        <h4>Income Trend</h4>
-                        <span className={`trend ${predictions.financial_trajectory.income_trend > 0 ? 'positive' : 'negative'}`}>
-                          {(predictions.financial_trajectory.income_trend * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="trend-item">
-                        <h4>Expense Trend</h4>
-                        <span className={`trend ${predictions.financial_trajectory.expense_trend > 0 ? 'negative' : 'positive'}`}>
-                          {(predictions.financial_trajectory.expense_trend * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="annual-projection">
-                      <h4>Annual Projection</h4>
-                      <div className="projection-details">
-                        <p><strong>Total Income:</strong> ₹{predictions.financial_trajectory.annual_projection.total_income.toLocaleString()}</p>
-                        <p><strong>Total Expenses:</strong> ₹{predictions.financial_trajectory.annual_projection.total_expenses.toLocaleString()}</p>
-                        <p><strong>Total Savings:</strong> ₹{predictions.financial_trajectory.annual_projection.total_savings.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="scenario-analysis">
-                    <h3>🎭 Scenario Analysis</h3>
-                    <div className="scenarios">
-                      {Object.entries(predictions.scenario_analysis).map(([scenario, data]) => (
-                        <div key={scenario} className="scenario">
-                          <h4>{scenario.charAt(0).toUpperCase() + scenario.slice(1)}</h4>
-                          <p className="scenario-description">{data.description}</p>
-                          <div className="scenario-details">
-                            <p><strong>Monthly Income:</strong> ₹{data.monthly_income.toLocaleString()}</p>
-                            <p><strong>Monthly Expenses:</strong> ₹{data.monthly_expenses.toLocaleString()}</p>
-                            <p><strong>Monthly Savings:</strong> ₹{data.monthly_savings.toLocaleString()}</p>
+                      {predictions.financial_trajectory ? (
+                        <>
+                          <div className="trend-item">
+                            <h4>Income Trend</h4>
+                            <span className={`trend ${predictions.financial_trajectory.income_trend > 0 ? 'positive' : 'negative'}`}>
+                              {(predictions.financial_trajectory.income_trend * 100).toFixed(1)}%
+                            </span>
                           </div>
-                        </div>
-                      ))}
+                          <div className="trend-item">
+                            <h4>Expense Trend</h4>
+                            <span className={`trend ${predictions.financial_trajectory.expense_trend < 0 ? 'positive' : 'negative'}`}>
+                              {(predictions.financial_trajectory.expense_trend * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="trend-item">
+                            <h4>Annual Savings</h4>
+                            <span className="savings-projection">
+                              ₹{predictions.financial_trajectory.annual_projection.total_savings.toLocaleString()}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <p>No trajectory data available yet</p>
+                      )}
                     </div>
+
+                    {predictions.annual_projection && (
+                      <div className="annual-projection">
+                        <h4>Annual Projection</h4>
+                        <div className="projection-details">
+                          <p><strong>Total Income:</strong> ₹{predictions.annual_projection.total_income?.toLocaleString() || 0}</p>
+                          <p><strong>Total Expenses:</strong> ₹{predictions.annual_projection.total_expenses?.toLocaleString() || 0}</p>
+                          <p><strong>Total Savings:</strong> ₹{predictions.annual_projection.total_savings?.toLocaleString() || 0}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="prediction-recommendations">
-                    <h4>💡 Prediction-Based Recommendations</h4>
-                    <ul>
-                      {predictions.recommendations.map((rec, index) => (
-                        <li key={index}>{rec}</li>
-                      ))}
-                    </ul>
-                  </div>
+                  {predictions.scenario_analysis && Object.keys(predictions.scenario_analysis).length > 0 && (
+                    <div className="scenario-analysis">
+                      <h3>🎭 Scenario Analysis</h3>
+                      <div className="scenarios">
+                        {Object.entries(predictions.scenario_analysis).map(([scenario, data]) => (
+                          <div key={scenario} className="scenario">
+                            <h4>{scenario.charAt(0).toUpperCase() + scenario.slice(1)}</h4>
+                            <p className="scenario-description">{data.description}</p>
+                            <div className="scenario-details">
+                              <p><strong>Monthly Income:</strong> ₹{data.monthly_income?.toLocaleString() || 0}</p>
+                              <p><strong>Monthly Expenses:</strong> ₹{data.monthly_expenses?.toLocaleString() || 0}</p>
+                              <p><strong>Monthly Savings:</strong> ₹{data.monthly_savings?.toLocaleString() || 0}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {predictions.recommendations && predictions.recommendations.length > 0 && (
+                    <div className="prediction-recommendations">
+                      <h4>💡 Prediction-Based Recommendations</h4>
+                      <ul>
+                        {predictions.recommendations.map((rec, index) => (
+                          <li key={index}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </>
               )}
             </div>

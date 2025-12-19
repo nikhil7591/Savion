@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List
 
 class TxIn(BaseModel):
     user_id: str
@@ -22,27 +22,3 @@ class SummaryOut(BaseModel):
     total_expense: float
     balance: float
     series: List[float]
-
-class UserCreate(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-
-class User(BaseModel):
-    id: int
-    name: str
-    email: EmailStr
-
-    class Config:
-        orm_mode = True
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-class TokenData(BaseModel):
-    email: Optional[EmailStr] = None
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str

@@ -1,468 +1,407 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FaRobot, FaUser, FaPaperPlane, FaMicrophone, FaStop, FaUpload, FaFileCsv, FaBolt, FaHistory } from 'react-icons/fa';
-import './Chatbot.css';
+import React, { useState, useEffect, useRef } from "react";
+import {
+  FaRobot,
+  FaUser,
+  FaPaperPlane,
+  FaMicrophone,
+  FaStop,
+  FaUpload,
+  FaFileCsv,
+  FaBolt,
+  FaHistory,
+} from "react-icons/fa";
+import "./Chatbot.css";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
+const defaultWelcome = `Hi! I'm your Smart Personal Finance Assistant powered by Gemini AI.
+I can analyze your uploaded data and provide insights:
+• Analyze CSV/Excel financial data
+• Personalized spending insights and recommendations
+• Predict future financial trends
+• Detect unusual spending patterns
+• Help set and track financial goals
+Upload your financial data or ask me anything about your finances!`;
 
 const Chatbot = ({ userId, onClose }) => {
   const [messages, setMessages] = useState([
-    {
-      id: 1,
-      type: 'bot',
-      content: 'Hi! I\'m your Smart Personal Finance Assistant powered by Gemini AI. I can analyze your uploaded data and provide intelligent insights:\n\n• 📊 Analyze your CSV/Excel financial data\n• 💡 Personalized spending insights and recommendations\n• 🔮 Predict future financial trends\n• 🚨 Detect unusual spending patterns\n• 🎯 Help set and track financial goals\n• 📈 Real-time data analysis and chat\n\nUpload your financial data or ask me anything about your finances!',
-      timestamp: new Date()
-    }
+    { id: 1, type: "bot", content: defaultWelcome, timestamp: new Date() },
   ]);
-  const [inputValue, setInputValue] = useState('');
+
+  const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
-  const [websocket, setWebsocket] = useState(null);
+  const mediaRecorderRef = useRef(null);
+  const wsRef = useRef(null);
+  const reconnectRef = useRef({ attempts: 0, timeoutId: null });
   const [isConnected, setIsConnected] = useState(false);
   const [useGemini, setUseGemini] = useState(true);
   const [uploadingFile, setUploadingFile] = useState(false);
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  const scrollToBottom = () => {
+  // Scroll to bottom on new message
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, [messages, isLoading]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // Build websocket URL
+  const wsUrl = () => `ws://localhost:8000/ws/${userId}`;
 
-  // WebSocket connection
+  // Connect WebSocket (with reconnection/backoff)
   useEffect(() => {
-    if (useGemini && userId) {
-      const ws = new WebSocket(`ws://localhost:8000/ws/${userId}`);
-      
+    if (!useGemini || !userId) return;
+
+    let ws;
+    const connect = () => {
+      ws = new WebSocket(wsUrl());
+      wsRef.current = ws;
+
       ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log("WebSocket connected");
         setIsConnected(true);
-        setWebsocket(ws);
+        reconnectRef.current.attempts = 0;
+        // Optionally inform backend to send a welcome or register user
+        ws.send(JSON.stringify({ type: "connection_init", content: "Hello from client" }));
       };
-      
+
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'connection_established') {
-          console.log('Connection established:', data.message);
-          return;
+        try {
+          const data = JSON.parse(event.data);
+          handleWebSocketMessage(data);
+        } catch (e) {
+          console.warn("WS non-JSON message:", event.data);
         }
-        handleWebSocketMessage(data);
       };
-      
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        setIsConnected(false);
-        setWebsocket(null);
-      };
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setIsConnected(false);
-      };
-      
-      return () => {
-        ws.close();
-      };
-    }
-  }, [useGemini, userId]);
 
-  const handleWebSocketMessage = (data) => {
-    if (!data || !data.type) {
-      console.error('Invalid message format:', data);
-      return;
-    }
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+      };
 
-    switch (data.type) {
-      case 'ai_response':
-        if (data.response) {
-          const botMessage = {
-            id: Date.now(),
-            type: 'bot',
-            content: data.response,
-            insights: data.insights || [],
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, botMessage]);
-          setIsLoading(false);
+      ws.onclose = (ev) => {
+        console.log("WebSocket closed", ev);
+        setIsConnected(false);
+        // Reconnect with backoff
+        if (useGemini) {
+          const attempts = reconnectRef.current.attempts + 1;
+          reconnectRef.current.attempts = attempts;
+          const delay = Math.min(30000, 500 * 2 ** attempts); // expo backoff (max 30s)
+          reconnectRef.current.timeoutId = setTimeout(connect, delay);
+          console.log(`Reconnecting WebSocket in ${delay}ms (attempt ${attempts})`);
         }
-        break;
-      case 'typing':
-        setIsLoading(true);
-        break;
-      case 'error':
-        const errorMessage = {
-          id: Date.now(),
-          type: 'bot',
-          content: `❌ ${data.message || 'An error occurred'}`,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
-        setIsLoading(false);
-        break;
-      case 'notification':
-        const notificationMessage = {
-          id: Date.now(),
-          type: 'bot',
-          content: `🔔 ${data.message}`,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, notificationMessage]);
-        break;
-      case 'connection_established':
-        console.log('Connection established:', data.message);
-        break;
-      default:
-        console.log('Unknown message type:', data.type);
-    }
-  };
-
-  const sendMessage = async (messageText) => {
-    if (!messageText.trim()) return;
-
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: messageText,
-      timestamp: new Date()
+      };
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
+    connect();
+
+    return () => {
+      // cleanup
+      if (reconnectRef.current.timeoutId) clearTimeout(reconnectRef.current.timeoutId);
+      try {
+        wsRef.current?.close();
+      } catch {}
+      wsRef.current = null;
+    };
+  }, [useGemini, userId]);
+
+  // WebSocket message handler
+  const handleWebSocketMessage = (data) => {
+    if (!data) return;
+    // Accept a variety of field names to maximize compatibility
+    const t = data.type || data.event || "";
+    switch (t) {
+      case "ai_response":
+      case "reply":
+      case "response":
+      case "gemini_response": {
+        const content = data.content ?? data.response ?? data.message ?? "";
+        const botMessage = {
+          id: Date.now(),
+          type: "bot",
+          content: content || JSON.stringify(data),
+          insights: data.insights || [],
+          timestamp: new Date(),
+        };
+        setMessages((m) => [...m, botMessage]);
+        setIsLoading(false);
+        break;
+      }
+      case "typing": {
+        setIsLoading(true);
+        break;
+      }
+      case "notification": {
+        const botMessage = {
+          id: Date.now(),
+          type: "bot",
+          content: `🔔 ${data.message || data.content || ""}`,
+          timestamp: new Date(),
+        };
+        setMessages((m) => [...m, botMessage]);
+        break;
+      }
+      case "error": {
+        const botMessage = {
+          id: Date.now(),
+          type: "bot",
+          content: `❌ ${data.message || data.error || "An error occurred"}`,
+          timestamp: new Date(),
+        };
+        setMessages((m) => [...m, botMessage]);
+        setIsLoading(false);
+        break;
+      }
+      case "connection_established": {
+        const botMessage = {
+          id: Date.now(),
+          type: "bot",
+          content: data.message || "Connected to Savion Smart Finance Assistant.",
+          timestamp: new Date(),
+        };
+        setMessages((m) => [...m, botMessage]);
+        break;
+      }
+      default: {
+        // Fallback: attach raw content if present
+        if (data.content || data.response || data.message) {
+          const botMessage = {
+            id: Date.now(),
+            type: "bot",
+            content: data.content ?? data.response ?? data.message,
+            timestamp: new Date(),
+          };
+          setMessages((m) => [...m, botMessage]);
+        } else {
+          console.debug("Unhandled WS message:", data);
+        }
+      }
+    }
+  };
+
+  // Send a message: prefer WebSocket when possible, otherwise HTTP fallback
+  const sendMessage = async (messageText) => {
+    if (!messageText || !messageText.trim()) return;
+    const userMessage = {
+      id: Date.now(),
+      type: "user",
+      content: messageText,
+      timestamp: new Date(),
+    };
+    setMessages((m) => [...m, userMessage]);
+    setInputValue("");
     setIsLoading(true);
 
-    try {
-      // Use WebSocket if connected, otherwise fallback to HTTP
-      if (useGemini && websocket && isConnected) {
-        websocket.send(JSON.stringify({
-          type: 'chat',
-          content: messageText
-        }));
-        setIsLoading(false);
+    // If websocket connected and using Gemini, send via WS
+    if (useGemini && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: "chat", content: messageText }));
+        // Let backend send responses via websocket; keep loading indicator until response.
         return;
+      } catch (err) {
+        console.warn("WebSocket send failed, falling back to HTTP:", err);
       }
+    }
 
-      // Fallback to HTTP API
-      const endpoint = useGemini ? '/api/gemini/chat' : '/api/chat';
-      const response = await fetch(`http://localhost:8000${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          query: messageText
-        })
+    // HTTP fallback
+    try {
+      const endpoint = useGemini ? "/api/gemini/chat" : "/api/chat";
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, query: messageText }),
       });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Server error ${res.status}: ${txt}`);
+      }
+      const data = await res.json();
 
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+      // Handle various response shapes
+      let botResponse = "";
+      if (data?.response) botResponse = data.response;
+      else if (data?.type === "gemini_response" && data.response) botResponse = data.response;
+      else {
+        // Generic fallback: stringify object or show message
+        botResponse = data?.message || JSON.stringify(data);
       }
 
-      const data = await response.json();
-      
-      let botResponse = '';
-      
-      // Handle Gemini AI response
-      if (data.type === 'gemini_response') {
-        botResponse = data.response;
-        
-        // Add insights if available
-        if (data.insights && data.insights.length > 0) {
-          botResponse += '\n\n**Key Insights:**\n' + data.insights.map(insight => `• ${insight}`).join('\n');
-        }
-      } else {
-        // Format response based on type (legacy format)
-        switch (data.type) {
-        case 'spending_analysis':
-          botResponse = `📊 **Spending Analysis**\n\n`;
-          botResponse += `Total spent: ₹${data.total_spent?.toLocaleString() || '0'}\n`;
-          botResponse += `Period: ${data.period || 'All time'}\n`;
-          if (data.category) {
-            botResponse += `Category: ${data.category}\n`;
-          }
-          botResponse += `Transactions: ${data.transaction_count || 0}\n\n`;
-          if (data.insights && data.insights.length > 0) {
-            botResponse += `**Insights:**\n${data.insights.map(insight => `• ${insight}`).join('\n')}`;
-          }
-          break;
-
-        case 'budget_analysis':
-          botResponse = `💰 **Budget Analysis**\n\n`;
-          botResponse += `Total spent: ₹${data.total_spent?.toLocaleString() || '0'}\n`;
-          botResponse += `Budget: ₹${data.budget_amount?.toLocaleString() || 'N/A'}\n`;
-          botResponse += `Status: ${data.status === 'over' ? '❌ Over budget' : '✅ Under budget'}\n`;
-          if (data.overspend_amount) {
-            botResponse += `Overspend: ₹${data.overspend_amount.toLocaleString()}\n`;
-          }
-          botResponse += `Percentage: ${data.percentage?.toFixed(1) || 0}%\n\n`;
-          if (data.recommendations && data.recommendations.length > 0) {
-            botResponse += `**Recommendations:**\n${data.recommendations.map(rec => `• ${rec}`).join('\n')}`;
-          }
-          break;
-
-        case 'prediction':
-          if (data.error) {
-            botResponse = `⚠️ ${data.error}`;
-          } else {
-            botResponse = `🔮 **Spending Prediction**\n\n`;
-            botResponse += `Average predicted spending: ₹${data.average_predicted?.toLocaleString() || '0'}\n\n`;
-            botResponse += `**Next 4 periods:**\n`;
-            data.forecast?.forEach((amount, index) => {
-              botResponse += `Period ${index + 1}: ₹${amount.toLocaleString()}\n`;
-            });
-            if (data.budget_limit) {
-              botResponse += `\nBudget limit: ₹${data.budget_limit.toLocaleString()}\n`;
-              botResponse += `Will exceed budget: ${data.will_exceed_budget ? '❌ Yes' : '✅ No'}\n`;
-            }
-            if (data.recommendations && data.recommendations.length > 0) {
-              botResponse += `\n**Recommendations:**\n${data.recommendations.map(rec => `• ${rec}`).join('\n')}`;
-            }
-          }
-          break;
-
-        case 'anomaly_detection':
-          if (data.error) {
-            botResponse = `⚠️ ${data.error}`;
-          } else {
-            botResponse = `🚨 **Anomaly Detection**\n\n`;
-            botResponse += `Found ${data.anomaly_count || 0} unusual transactions\n\n`;
-            if (data.anomalies && data.anomalies.length > 0) {
-              botResponse += `**Unusual transactions:**\n`;
-              data.anomalies.forEach((anomaly, index) => {
-                const tx = anomaly.transaction;
-                botResponse += `${index + 1}. ₹${tx.amount.toLocaleString()} for ${tx.category} on ${new Date(tx.date).toLocaleDateString()}\n`;
-                botResponse += `   Reason: ${anomaly.reason}\n\n`;
-              });
-            }
-            if (data.recommendations && data.recommendations.length > 0) {
-              botResponse += `**Recommendations:**\n${data.recommendations.map(rec => `• ${rec}`).join('\n')}`;
-            }
-          }
-          break;
-
-        case 'goal_setting':
-          if (data.error) {
-            botResponse = `⚠️ ${data.error}\n\n**Suggestions:**\n${data.suggestions?.map(s => `• ${s}`).join('\n') || ''}`;
-          } else {
-            botResponse = `🎯 **Savings Goal**\n\n`;
-            botResponse += `Goal: ₹${data.goal_amount?.toLocaleString() || '0'}\n`;
-            botResponse += `Timeframe: ${data.timeframe || 'N/A'}\n`;
-            botResponse += `Required monthly savings: ₹${data.required_monthly_savings?.toLocaleString() || '0'}\n`;
-            botResponse += `Current savings: ₹${data.current_savings?.toLocaleString() || '0'}\n`;
-            botResponse += `Feasible: ${data.feasible ? '✅ Yes' : '❌ No'}\n\n`;
-            if (data.recommendations && data.recommendations.length > 0) {
-              botResponse += `**Recommendations:**\n${data.recommendations.map(rec => `• ${rec}`).join('\n')}`;
-            }
-          }
-          break;
-
-        case 'summary':
-          botResponse = `📈 **Financial Summary**\n\n`;
-          botResponse += `Period: ${data.period || 'All time'}\n`;
-          botResponse += `Total Income: ₹${data.total_income?.toLocaleString() || '0'}\n`;
-          botResponse += `Total Expenses: ₹${data.total_expenses?.toLocaleString() || '0'}\n`;
-          botResponse += `Balance: ₹${data.balance?.toLocaleString() || '0'}\n`;
-          botResponse += `Transactions: ${data.transaction_count || 0}\n\n`;
-          if (data.categories && Object.keys(data.categories).length > 0) {
-            botResponse += `**Expense Categories:**\n`;
-            Object.entries(data.categories).forEach(([category, amount]) => {
-              botResponse += `• ${category}: ₹${amount.toLocaleString()}\n`;
-            });
-            botResponse += '\n';
-          }
-          if (data.insights && data.insights.length > 0) {
-            botResponse += `**Insights:**\n${data.insights.map(insight => `• ${insight}`).join('\n')}`;
-          }
-          break;
-
-        case 'general':
-          botResponse = data.response || 'I can help you with your financial queries!';
-          if (data.suggestions && data.suggestions.length > 0) {
-            botResponse += `\n\n**Try asking:**\n${data.suggestions.map(s => `• ${s}`).join('\n')}`;
-          }
-          break;
-
-        case 'error':
-          botResponse = `❌ ${data.error || 'Something went wrong'}\n\n`;
-          if (data.suggestions && data.suggestions.length > 0) {
-            botResponse += `**Try asking:**\n${data.suggestions.map(s => `• ${s}`).join('\n')}`;
-          }
-          break;
-
-        default:
-          botResponse = data.response || 'I received your message but couldn\'t process it properly.';
-        }
+      // Add insights if present (makes user-facing content friendly)
+      if (data?.insights && Array.isArray(data.insights) && data.insights.length) {
+        botResponse += `\n\n**Key Insights:**\n${data.insights.map((i) => `• ${i}`).join("\n")}`;
       }
 
-      const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: botResponse,
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, botMessage]);
-
-    } catch (error) {
-      console.error('Chat error:', error);
-      const errorMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: `❌ Sorry, I encountered an error: ${error.message}\n\nPlease try again or contact support if the issue persists.`,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((m) => [
+        ...m,
+        { id: Date.now() + 1, type: "bot", content: botResponse, timestamp: new Date() },
+      ]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      setMessages((m) => [
+        ...m,
+        {
+          id: Date.now() + 1,
+          type: "bot",
+          content: `❌ Sorry, I couldn't send your message: ${err.message}`,
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Form submit handler
   const handleSubmit = (e) => {
     e.preventDefault();
     sendMessage(inputValue);
   };
 
+  // Voice recording handlers
   const startVoiceRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
-      setMediaRecorder(recorder);
-      setIsRecording(true);
-
       const chunks = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) chunks.push(ev.data);
       };
 
       recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append('file', blob, 'voice.webm');
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const fd = new FormData();
+        fd.append("file", blob, "voice.webm");
 
         try {
-          const response = await fetch('http://localhost:8000/api/transcribe', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (data.text) {
-              sendMessage(data.text);
-            }
+          const res = await fetch(`${API_BASE}/api/transcribe`, { method: "POST", body: fd });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(`Transcription failed: ${t}`);
           }
-        } catch (error) {
-          console.error('Voice transcription error:', error);
+          const data = await res.json();
+          if (data?.text) {
+            sendMessage(data.text);
+          } else {
+            throw new Error("No text returned from transcription");
+          }
+        } catch (err) {
+          console.error("Voice transcription error:", err);
+          setMessages((m) => [
+            ...m,
+            {
+              id: Date.now(),
+              type: "bot",
+              content: `❌ Voice transcription failed: ${err.message}`,
+              timestamp: new Date(),
+            },
+          ]);
+        } finally {
+          stream.getTracks?.().forEach((t) => t.stop());
+          setIsRecording(false);
         }
-
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
-        setIsRecording(false);
       };
 
       recorder.start();
-    } catch (error) {
-      console.error('Voice recording error:', error);
-      alert('Please allow microphone access to use voice input.');
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Start recording error:", err);
+      alert("Please allow microphone access to use voice input.");
     }
   };
 
   const stopVoiceRecording = () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+    } catch (err) {
+      console.warn("Stop recording error:", err);
     }
   };
 
+  // File upload handler (CSV/Excel)
   const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
+    const file = event.target.files?.[0];
     if (!file) return;
-
-    // Check file type
-    const allowedTypes = ['.csv', '.xlsx', '.xls'];
-    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-    
-    if (!allowedTypes.includes(fileExtension)) {
-      alert('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+    const allowed = [".csv", ".xlsx", ".xls"];
+    const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+    if (!allowed.includes(ext)) {
+      alert("Please upload .csv, .xlsx, or .xls file.");
       return;
     }
 
     setUploadingFile(true);
-    
     try {
       const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`http://localhost:8000/api/upload_csv?user_id=${userId}`, {
-        method: 'POST',
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/api/upload_csv?user_id=${userId}`, {
+        method: "POST",
         body: formData,
       });
-
-      const result = await response.json();
-      
-      if (result.success) {
-        const uploadMessage = {
-          id: Date.now(),
-          type: 'bot',
-          content: `✅ File uploaded successfully!\n\n📊 **Upload Summary:**\n• File: ${file.name}\n• Records processed: ${result.inserted}\n• Total rows: ${result.total_rows}\n${result.error_count > 0 ? `• Errors: ${result.error_count}\n` : ''}\n\nI can now analyze your financial data! Try asking me about your spending patterns, budget, or financial insights.`,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, uploadMessage]);
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setMessages((m) => [
+          ...m,
+          {
+            id: Date.now(),
+            type: "bot",
+            content: `✅ File uploaded: ${file.name}\nProcessed: ${result.inserted || 0} rows.`,
+            timestamp: new Date(),
+          },
+        ]);
       } else {
-        throw new Error(result.error || 'Upload failed');
+        throw new Error(result.error || "Upload failed");
       }
-    } catch (error) {
-      console.error('Upload error:', error);
-      const errorMessage = {
-        id: Date.now(),
-        type: 'bot',
-        content: `❌ Upload failed: ${error.message}\n\nPlease make sure your file has the required columns: date, type, category, amount`,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+    } catch (err) {
+      console.error("Upload error:", err);
+      setMessages((m) => [
+        ...m,
+        {
+          id: Date.now(),
+          type: "bot",
+          content: `❌ Upload failed: ${err.message}`,
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setUploadingFile(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
+  // Clear chat history both locally and optionally server-side
   const clearChatHistory = async () => {
-    if (useGemini) {
-      try {
-        await fetch(`http://localhost:8000/api/gemini/clear-history/${userId}`, {
-          method: 'DELETE'
-        });
-      } catch (error) {
-        console.error('Error clearing history:', error);
+    try {
+      if (useGemini) {
+        await fetch(`${API_BASE}/api/gemini/clear-history/${userId}`, { method: "DELETE" });
       }
+    } catch (err) {
+      console.warn("Error clearing server history:", err);
     }
-    
-    setMessages([{
-      id: 1,
-      type: 'bot',
-      content: 'Chat history cleared! How can I help you with your finances today?',
-      timestamp: new Date()
-    }]);
+    setMessages([{ id: 1, type: "bot", content: "Chat history cleared. How can I help you now?", timestamp: new Date() }]);
   };
 
+  // Toggle AI mode
   const toggleAI = () => {
-    setUseGemini(!useGemini);
-    if (websocket) {
-      websocket.close();
-    }
+    setUseGemini((s) => !s);
+    // Close websocket if open
+    try {
+      wsRef.current?.close();
+      wsRef.current = null;
+      setIsConnected(false);
+    } catch {}
   };
 
+  // Quick actions
   const quickActions = [
-    { label: '📊 Data Analysis', query: 'Analyze my financial data and provide insights' },
-    { label: '💰 Spending Summary', query: 'Show me my spending summary for this month' },
-    { label: '🎯 Budget Check', query: 'Am I overspending this month?' },
-    { label: '🔮 Predict Spending', query: 'Predict my spending for next month' },
-    { label: '🚨 Find Anomalies', query: 'Check for unusual transactions this week' },
-    { label: '💎 Set Goal', query: 'Help me save ₹50,000 in 6 months' },
-    { label: '📈 Investment Advice', query: 'Give me investment advice based on my finances' }
+    { label: "📊 Data Analysis", query: "Analyze my financial data and provide insights" },
+    { label: "💰 Spending Summary", query: "Show me my spending summary for this month" },
+    { label: "🎯 Budget Check", query: "Am I overspending this month?" },
+    { label: "🔮 Predict Spending", query: "Predict my spending for next month" },
+    { label: "🚨 Find Anomalies", query: "Check for unusual transactions this week" },
+    { label: "💎 Set Goal", query: "Help me save ₹50,000 in 6 months" },
+    { label: "📈 Investment Advice", query: "Give me investment advice based on my finances" },
   ];
 
   return (
@@ -470,30 +409,25 @@ const Chatbot = ({ userId, onClose }) => {
       <div className="chatbot-header">
         <div className="chatbot-title">
           <FaRobot className="chatbot-icon" />
-          <span>Smart Finance Assistant {useGemini ? '(Gemini AI)' : '(Basic)'}</span>
+          <span>Smart Finance Assistant {useGemini ? "(Gemini AI)" : "(Basic)"}</span>
           <div className="connection-status">
             {useGemini && (
-              <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
-                {isConnected ? '🟢 Live' : '🔴 Offline'}
+              <span className={`status-indicator ${isConnected ? "connected" : "disconnected"}`}>
+                {isConnected ? "🟢 Live" : "🔴 Offline"}
               </span>
             )}
           </div>
         </div>
+
         <div className="header-controls">
-          <button 
-            className={`ai-toggle ${useGemini ? 'active' : ''}`}
-            onClick={toggleAI}
-            title={useGemini ? 'Switch to Basic Mode' : 'Switch to Gemini AI Mode'}
-          >
+          <button className={`ai-toggle ${useGemini ? "active" : ""}`} onClick={toggleAI} title={useGemini ? "Switch to Basic Mode" : "Switch to Gemini AI Mode"}>
             <FaBolt />
           </button>
-          <button 
-            className="clear-history-btn"
-            onClick={clearChatHistory}
-            title="Clear Chat History"
-          >
+
+          <button className="clear-history-btn" onClick={clearChatHistory} title="Clear Chat History">
             <FaHistory />
           </button>
+
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
       </div>
@@ -501,30 +435,21 @@ const Chatbot = ({ userId, onClose }) => {
       <div className="chatbot-messages">
         {messages.map((message) => (
           <div key={message.id} className={`message ${message.type}`}>
-            <div className="message-avatar">
-              {message.type === 'bot' ? <FaRobot /> : <FaUser />}
-            </div>
+            <div className="message-avatar">{message.type === "bot" ? <FaRobot /> : <FaUser />}</div>
+
             <div className="message-content">
               <div className="message-text">
-                {message.content.split('\n').map((line, index) => (
-                  <div key={index}>
-                    {line.includes('**') ? (
-                      <div dangerouslySetInnerHTML={{
-                        __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                      }} />
-                    ) : (
-                      line
-                    )}
-                  </div>
-                ))}
+                {String(message.content)
+                  .split("\n")
+                  .map((line, i) => (
+                    <div key={i} dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") }} />
+                  ))}
               </div>
-              <div className="message-time">
-                {message.timestamp.toLocaleTimeString()}
-              </div>
+              <div className="message-time">{new Date(message.timestamp).toLocaleTimeString()}</div>
             </div>
           </div>
         ))}
-        
+
         {isLoading && (
           <div className="message bot">
             <div className="message-avatar">
@@ -532,14 +457,12 @@ const Chatbot = ({ userId, onClose }) => {
             </div>
             <div className="message-content">
               <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
+                <span></span><span></span><span></span>
               </div>
             </div>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -549,37 +472,19 @@ const Chatbot = ({ userId, onClose }) => {
           <span>Upload Your Financial Data</span>
         </div>
         <div className="upload-controls">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            onChange={handleFileUpload}
-            style={{ display: 'none' }}
-          />
-          <button
-            className="upload-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingFile || isLoading}
-          >
-            <FaUpload />
-            {uploadingFile ? 'Uploading...' : 'Choose File'}
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload} style={{ display: "none" }} />
+          <button className="upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploadingFile || isLoading}>
+            <FaUpload /> {uploadingFile ? "Uploading..." : "Choose File"}
           </button>
-          <span className="upload-hint">
-            Supports CSV and Excel files with date, type, category, amount columns
-          </span>
+          <span className="upload-hint">Supports CSV/Excel with date,type,category,amount</span>
         </div>
       </div>
 
       <div className="quick-actions">
         <div className="quick-actions-title">Quick Actions:</div>
         <div className="quick-actions-buttons">
-          {quickActions.map((action, index) => (
-            <button
-              key={index}
-              className="quick-action-btn"
-              onClick={() => sendMessage(action.query)}
-              disabled={isLoading}
-            >
+          {quickActions.map((action, idx) => (
+            <button key={idx} className="quick-action-btn" onClick={() => sendMessage(action.query)} disabled={isLoading}>
               {action.label}
             </button>
           ))}
@@ -587,20 +492,8 @@ const Chatbot = ({ userId, onClose }) => {
       </div>
 
       <form className="chatbot-input" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder="Ask me anything about your finances..."
-          disabled={isLoading}
-        />
-        <button
-          type="button"
-          className={`voice-btn ${isRecording ? 'recording' : ''}`}
-          onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
-          disabled={isLoading}
-        >
+        <input value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Ask me anything about your finances..." disabled={isLoading} />
+        <button type="button" className={`voice-btn ${isRecording ? "recording" : ""}`} onClick={() => (isRecording ? stopVoiceRecording() : startVoiceRecording())} disabled={isLoading}>
           {isRecording ? <FaStop /> : <FaMicrophone />}
         </button>
         <button type="submit" disabled={isLoading || !inputValue.trim()}>

@@ -4,8 +4,6 @@ import asyncio
 from typing import Dict, Set, Any, Optional, AsyncIterator
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
-from sqlmodel import Session
-from app.db import get_session
 from app.finance_agent import get_finance_agent
 
 # -------------------------
@@ -168,28 +166,25 @@ class ConnectionManager:
             return
 
         # Notify the client that AI is thinking
-        await self.send_personal_message({"type": "typing", "message": "AI is thinking...", "timestamp": now_ts()}, websocket)
+        await self.send_personal_message({"type": "typing", "message": "🤖 AI is thinking...", "timestamp": now_ts()}, websocket)
 
-        # Use DB session and call the agent
+        # Process the query with the agent
         try:
-            # get DB session from generator: get_session() yields a Session; use next() to get it
-            session: Session = next(get_session())
-
             # If agent available, ask it to process the query.
             if self.agent and getattr(self.agent, "process_query", None):
                 # If agent's process_query is async, call directly; else run in executor
                 process = self.agent.process_query
                 if asyncio.iscoroutinefunction(process):
-                    ai_result = await process(user_id, content, session)
+                    ai_result = await process(user_id, content)
                 else:
                     loop = asyncio.get_event_loop()
-                    ai_result = await loop.run_in_executor(None, lambda: process(user_id, content, session))
+                    ai_result = await loop.run_in_executor(None, lambda: process(user_id, content))
             else:
                 # fallback response (no AI)
                 ai_result = {
                     "type": "fallback_response",
                     "query": content,
-                    "response": "I can help with basic analysis. To enable AI-powered insights, please configure the Gemini API key.",
+                    "response": "❌ I can help with basic analysis. To enable AI-powered insights, please ensure the Gemini API key is configured.",
                     "insights": ["agent_not_configured"],
                     "user_context_summary": {"ai_available": False}
                 }
@@ -210,48 +205,21 @@ class ConnectionManager:
                 insights = []
                 user_ctx = {}
 
-            # If agent returned a stream generator, try to stream it
-            # (This is optional and only used if your agent/model exposes streaming)
-            streamed = False
-            if self.agent and getattr(self.agent, "stream_response", None):
-                try:
-                    stream_fn = getattr(self.agent, "stream_response")
-                    # If generator is async iterator
-                    if asyncio.iscoroutinefunction(stream_fn):
-                        # async generator function - call and iterate
-                        async for chunk in stream_fn(user_id, content, session):
-                            await self.send_personal_message({"type": "ai_stream", "chunk": chunk, "timestamp": now_ts()}, websocket)
-                        streamed = True
-                    else:
-                        # sync generator - run in executor
-                        loop = asyncio.get_event_loop()
-                        def run_stream():
-                            for chunk in stream_fn(user_id, content, session):
-                                # yield chunks back to event loop via queue: but for simplicity, return list
-                                yield chunk
-                        chunks = await loop.run_in_executor(None, lambda: list(run_stream()))
-                        for chunk in chunks:
-                            await self.send_personal_message({"type": "ai_stream", "chunk": chunk, "timestamp": now_ts()}, websocket)
-                        streamed = True
-                except Exception as e:
-                    # If streaming fails - fall back to sending full response
-                    print("Streaming failed or not supported:", e)
-                    streamed = False
-
-            # If not streamed, send the complete response
-            if not streamed:
-                await self.send_personal_message({
-                    "type": "ai_response",
-                    "query": content,
-                    "response": response_text,
-                    "insights": insights,
-                    "user_context": user_ctx,
-                    "timestamp": now_ts()
-                }, websocket)
+            # Send the complete response
+            await self.send_personal_message({
+                "type": "ai_response",
+                "query": content,
+                "response": response_text,
+                "insights": insights,
+                "user_context": user_ctx,
+                "timestamp": now_ts()
+            }, websocket)
 
         except Exception as e:
-            print("Error in handle_chat_message:", e)
-            await self.send_personal_message({"type": "error", "message": f"Server error while processing chat: {e}"}, websocket)
+            print(f"❌ Error in handle_chat_message: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.send_personal_message({"type": "error", "message": f"⚠️ Server error: {str(e)}. Please try again."}, websocket)
 
     # --- push helpers for external code to call ---
     async def send_notification(self, user_id: str, notification: dict):
@@ -294,12 +262,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
-                await manager.send_personal_message({"type": "error", "message": "Invalid JSON"}, websocket)
+                await manager.send_personal_message({"type": "error", "message": "❌ Invalid JSON format. Please check your message."}, websocket)
                 continue
             await manager.handle_message(websocket, user_id, message)
     except WebSocketDisconnect:
         await manager.disconnect(websocket, user_id)
-        print(f"User {user_id} disconnected from WebSocket")
+        print(f"✅ User {user_id} disconnected from WebSocket")
     except Exception as e:
-        print(f"Unexpected WebSocket error for user {user_id}: {e}")
+        print(f"❌ Unexpected WebSocket error for user {user_id}: {e}")
+        import traceback
+        traceback.print_exc()
         await manager.disconnect(websocket, user_id)

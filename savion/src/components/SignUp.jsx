@@ -1,43 +1,46 @@
 import React, { useState } from 'react';
 import { FaEye, FaEyeSlash, FaUser } from 'react-icons/fa';
+import { auth } from "../api/auth.js";
 
-const SignUp = ({ onViewChange, onLogin }) => {
-  const [name, setName] = useState('');
+const SignUp = ({ onViewChange }) => {
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agreePolicy, setAgreePolicy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleEmailSignUp = async (e) => {
     e.preventDefault();
+    setError('');
+
     if (!agreePolicy) {
-      alert('You must agree to the privacy policy.');
+      setError('Please agree to the privacy policy');
       return;
     }
+
+    if (!username.trim()) {
+      setError('Please enter a username');
+      return;
+    }
+
+    if (username.length < 3) {
+      setError('Username must be at least 3 characters long');
+      return;
+    }
+
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name, email, password }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        localStorage.setItem('token', data.access_token);
-        if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-          onLogin(data.user);
-        } else {
-          onLogin(null);
-        }
+      const { data, error: signUpError } = await auth.signup(email, password, username);
+      if (signUpError) {
+        setError(signUpError.message || 'Signup failed');
       } else {
-        alert(data.detail || data.message || 'Sign up failed');
+        // Signup successful, component will re-render via auth state change
+        window.location.reload();
       }
     } catch (error) {
-      alert('Error: ' + error.message);
+      setError('Error: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -48,10 +51,10 @@ const SignUp = ({ onViewChange, onLogin }) => {
       <div className="auth-content">
         <h2 className="auth-title">Sign Up</h2>
         <p className="auth-subtitle">
-          Please register to continue using our app.
+          Please register with email and create an account to continue using our app.
         </p>
 
-        <p className="divider-text">Sign up with your email</p>
+        {error && <div className="error-message">{error}</div>}
 
         <form onSubmit={handleEmailSignUp} className="auth-form">
           <div className="form-group">
@@ -60,9 +63,10 @@ const SignUp = ({ onViewChange, onLogin }) => {
                 type="text"
                 placeholder="Username"
                 className="form-input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
+                minLength={3}
               />
               <FaUser className="input-icon" />
             </div>
@@ -87,6 +91,7 @@ const SignUp = ({ onViewChange, onLogin }) => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              minLength={6}
             />
             <button
               type="button"
@@ -105,21 +110,21 @@ const SignUp = ({ onViewChange, onLogin }) => {
               onChange={(e) => setAgreePolicy(e.target.checked)}
             />
             <label htmlFor="privacy-policy">
-              I agree with the privacy policy
+              I agree with privacy policy
             </label>
           </div>
 
           <button 
             type="submit" 
             className="primary-btn"
-            disabled={loading || !agreePolicy}
+            disabled={loading}
           >
             {loading ? 'Signing up...' : 'Sign up'}
           </button>
         </form>
 
         <p className="switch-text">
-          Already have an account?{' '}
+          You already have an account?{' '}
           <button 
             className="link-btn"
             onClick={() => onViewChange('signin')}

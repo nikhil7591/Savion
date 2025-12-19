@@ -4,24 +4,17 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import google.generativeai as genai
-from sqlmodel import select, Session
+from . import db
 from .models import Transaction
-from .db import get_session
 
 
 class GeminiAIAssistant:
     """Gemini AI-powered financial assistant for real-time data analysis"""
     
     def __init__(self, api_key: Optional[str] = None):
-        import os
-        from pathlib import Path
-        
-        # Get the API key with your key as default
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        
+        # Get the API key 
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        self.model = None
         self.is_configured = False
         
         # Conversation context storage
@@ -30,53 +23,55 @@ class GeminiAIAssistant:
         # Configure Gemini AI
         try:
             self._configure_gemini()
-            print(f"✅ Gemini AI initialized with key: {self.api_key[:10]}...")
+            if self.api_key:
+                print(f"✅ Gemini AI initialized with key: {self.api_key[:10]}...")
+            else:
+                print("⚠️ Gemini API key not found. Set GEMINI_API_KEY environment variable.")
         except Exception as e:
-            print(f"Error configuring Gemini AI: {e}")
-            self.model = genai.GenerativeModel("gemini-2.0-flash")
+            print(f"⚠️ Error configuring Gemini AI: {e}")
             self.is_configured = False
     
     def _configure_gemini(self):
         """Configure Gemini AI with API key"""
         if not self.api_key:
-            raise ValueError("Gemini API key is required")
+            print("⚠️ Gemini API key is required. Set GEMINI_API_KEY environment variable.")
+            self.is_configured = False
+            return
         
         try:
-            # Reset the configuration
-            genai.reset()
-            
-            # Configure Gemini AI with the new key
+            # Configure Gemini AI with the key
             genai.configure(api_key=self.api_key)
             
-            # Initialize the chat model
-            self.model = genai.GenerativeModel('gemini-pro')
+            # Initialize with the latest flash model
+            self.model = genai.GenerativeModel("gemini-2.0-flash")
             
             # Verify the configuration with a test message
             try:
-                response = self.model.generate_content("Test connection")
+                response = self.model.generate_content("Test")
                 if response and response.text:
                     self.is_configured = True
-                    print(f"✅ Gemini AI configured successfully with key: {self.api_key[:10]}...")
+                    print(f"✅ Gemini AI configured successfully")
                 else:
-                    raise ValueError("No response from model")
+                    print("⚠️ Model test failed - no response")
+                    self.is_configured = False
             except Exception as e:
-                print(f"❌ Model test failed: {str(e)}")
+                print(f"⚠️ Model test failed: {str(e)}")
                 self.is_configured = False
                 raise
         except Exception as e:
-            print(f"❌ Failed to configure Gemini AI: {e}")
+            print(f"⚠️ Failed to configure Gemini AI: {e}")
+            self.is_configured = False
             raise
     
     def is_available(self) -> bool:
         """Check if Gemini AI is available and configured"""
         return self.is_configured and self.model is not None
     
-    def _get_user_context(self, user_id: str, session: Session) -> Dict[str, Any]:
+    def _get_user_context(self, user_id: str) -> Dict[str, Any]:
         """Get comprehensive user financial context"""
         try:
-            # Get all transactions
-            stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.date)
-            transactions = session.exec(stmt).all()
+            # Get all transactions from MongoDB
+            transactions = db.get_transactions(user_id)
             
             if not transactions:
                 return {
@@ -87,15 +82,16 @@ class GeminiAIAssistant:
                 }
             
             # Calculate financial summary
-            total_income = sum(t.amount for t in transactions if t.type == 'income')
-            total_expenses = sum(t.amount for t in transactions if t.type == 'expense')
+            total_income = sum(t.get('amount', 0) for t in transactions if t.get('type') == 'income')
+            total_expenses = sum(t.get('amount', 0) for t in transactions if t.get('type') == 'expense')
             balance = total_income - total_expenses
             
             # Category breakdown
             categories = {}
             for t in transactions:
-                if t.type == 'expense':
-                    categories[t.category] = categories.get(t.category, 0) + t.amount
+                if t.get('type') == 'expense':
+                    cat = t.get('category', 'Other')
+                    categories[cat] = categories.get(cat, 0) + t.get('amount', 0)
             
             # Recent transactions (last 30 days)
             recent_date = datetime.now().date() - timedelta(days=30)
@@ -194,15 +190,15 @@ Remember: You're analyzing real financial data, so be accurate and helpful with 
         if len(self.conversation_contexts[user_id]) > 20:
             self.conversation_contexts[user_id] = self.conversation_contexts[user_id][-20:]
     
-    async def process_query(self, user_id: str, query: str, session: Session) -> Dict[str, Any]:
+    async def process_query(self, user_id: str, query: str) -> Dict[str, Any]:
         """Process user query with Gemini AI using their financial data"""
         try:
             # Check if Gemini AI is available
             if not self.is_available():
-                return self._fallback_response(user_id, query, session)
+                return self._fallback_response(user_id, query)
             
             # Get user's financial context
-            user_context = self._get_user_context(user_id, session)
+            user_context = self._get_user_context(user_id)
             
             # Get conversation history
             conversation_history = self._get_conversation_history(user_id)
@@ -241,11 +237,11 @@ Remember: You're analyzing real financial data, so be accurate and helpful with 
             
         except Exception as e:
             print(f"Error processing query with Gemini AI: {e}")
-            return self._fallback_response(user_id, query, session)
+            return self._fallback_response(user_id, query)
     
-    def _fallback_response(self, user_id: str, query: str, session: Session) -> Dict[str, Any]:
+    def _fallback_response(self, user_id: str, query: str) -> Dict[str, Any]:
         """Provide fallback response when Gemini AI is not available"""
-        user_context = self._get_user_context(user_id, session)
+        user_context = self._get_user_context(user_id)
         
         # Simple rule-based responses based on query keywords
         query_lower = query.lower()
@@ -315,10 +311,10 @@ Remember: You're analyzing real financial data, so be accurate and helpful with 
         
         return insights
     
-    def analyze_data_patterns(self, user_id: str, session: Session) -> Dict[str, Any]:
+    def analyze_data_patterns(self, user_id: str) -> Dict[str, Any]:
         """Analyze user's data patterns for insights"""
         try:
-            user_context = self._get_user_context(user_id, session)
+            user_context = self._get_user_context(user_id)
             
             if user_context.get("transaction_count", 0) == 0:
                 return {"error": "No transaction data available for analysis"}
