@@ -1,0 +1,39 @@
+{
+  "name": "savion",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@headlessui/react": "^1.7.17",
+    "@heroicons/react": "^2.0.18",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@supabase/supabase-js": "^2.38.4",
+    "@tanstack/react-query": "^5.8.4",
+    "axios": "^1.6.2",
+    "chart.js": "^4.4.0",
+    "clsx": "^2.0.0",
+    "framer-motion": "^10.16.5",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^6.19.0",
+    "zustand": "^4.4.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.16",
+    "@types/react": "^18.0.28",
+    "@types/react-dom": "^18.0.11",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.16",
+    "typescript": "^5.1.6",
+    "vite": "^4.4.0"
+  }
+}

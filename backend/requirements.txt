@@ -1,0 +1,33 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+pydantic
+bcrypt
+passlib[bcrypt]
+python-jose[cryptography]
+pandas
+numpy
+scikit-learn
+python-multipart
+
+# AI / ML / NLP
+langchain
+openai
+transformers
+torch
+datasets
+tqdm
+google-generativeai
+websockets
+asyncio-mqtt
+pymongo
+
+# Utilities
+python-dotenv
+aiofiles
+httpx
+
+# Visualization / Reports
+reportlab
+matplotlib
+seaborn

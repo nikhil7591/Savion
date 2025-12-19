@@ -1,0 +1,76 @@
+# Node.js
+node_modules
+npm-debug.log
+yarn-error.log
+yarn.lock
+package-lock.json
+
+# Node.js coverage
+coverage/
+
+# Python
+.venv/
+venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python test & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+
+# Flask
+instance/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# React/Next.js
+.next/
+dist/
+dist-ssr/
+build/
+*.local
+
+# MongoDB
+# No specific files to ignore for MongoDB, but you might want to ignore data dumps.
+# mongodump/
+
+# Environment Files
+.env
+.env.*
+/backend/.env
+/savion/.env
+!.env.example
+
+# Secrets
+secrets.json
+*.pem
+*.key
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# OS Files
+# Archives
+*.zip
+
+.DS_Store
+Thumbs.db
+
+# IDE Files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

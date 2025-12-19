@@ -1,0 +1,168 @@
+/* ===== Page Background ===== */
+body {
+  background: #e6f0ff; /* soft blue background */
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', sans-serif;
+}
+
+/* ===== Navbar ===== */
+.navbar {
+  width: 96%;
+  position: fixed;
+  top: 25px;
+  background: #ffffff; /* white navbar */
+  color: black; /* blue text */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 2rem; /* taller navbar */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 100;
+}
+
+.navbar h2 {
+  margin: 0;
+  font-size: 2rem;
+  color: black;
+}
+
+.navbar .nav-links {
+  display: flex;
+  gap: 1rem;
+}
+
+.navbar .nav-links span,
+.navbar .nav-links button {
+  cursor: pointer;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  color: black;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  transition: 0.3s;
+}
+
+.navbar .nav-links span:hover,
+.navbar .nav-links button:hover {
+  background: rgba(24,144,255,0.1);
+}
+
+/* ===== Dashboard / Profile Container ===== */
+/* .dashboard-container {
+  max-width: 500px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8rem 2rem 2rem 2rem; 
+  min-height: 100vh;
+} */
+
+/* ===== Profile / Edit Card ===== */
+/* .profile-card {
+  background: #ffffff;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  transition: 0.3s;
+}
+
+.profile-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 25px rgba(0,0,0,0.12);
+} */
+/* ===== Profile / Edit Card ===== */
+/* ===== Dashboard / Profile Container ===== */
+.dashboard-container {
+  max-width: 500px;
+  width: 100%;
+  margin: 0 auto;             /* no top margin */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6rem 2rem 2rem 2rem; /* space from top for navbar, smaller than before */
+  min-height: 100vh;
+}
+
+/* ===== Profile / Edit Card ===== */
+.profile-card {
+  background: #ffffff;
+  padding: 2.5rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  transition: 0.3s;
+  margin-top: 0; /* remove extra margin so it’s close to navbar */
+}
+
+
+
+.profile-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 25px rgba(0,0,0,0.12);
+}
+
+
+/* ===== Labels and Inputs ===== */
+.profile-card label {
+  display: flex;
+  flex-direction: column;
+  font-weight: 500;
+  text-align: left;
+  color: #333;
+}
+
+.profile-card input {
+  padding: 0.7rem;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+}
+
+/* ===== Buttons ===== */
+.edit-btn, .save-btn {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 12px;
+  border: none;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+  margin-top: 1rem;
+}
+
+.edit-btn { background: linear-gradient(135deg, #1890ff, #40a9ff); }
+.save-btn { background: linear-gradient(135deg, #0077b6, #0096c7); }
+
+.edit-btn:hover, .save-btn:hover {
+  opacity: 0.95;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(24,144,255,0.4);
+}
+
+/* ===== Responsive ===== */
+@media(max-width:768px){
+  .dashboard-container {
+    padding: 4rem 1rem 2rem 1rem;
+  }
+  .navbar h2 {
+    font-size: 1.8rem;
+  }
+  .edit-btn, .save-btn {
+    width: 100%;
+  }
+}

@@ -1,0 +1,4 @@
+Type,Category,Amount,Date,UserId
+expense,Food,250,2025-08-01,u123
+income,Salary,40000,2025-08-01,u123
+expense,Transport,120,2025-08-02,u123
