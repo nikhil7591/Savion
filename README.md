@@ -234,5 +234,5 @@ For support, email support@savion.com or open an issue in the repository.
 - [ ] Advanced ML models for financial predictions
 
 ---
-
+- video link  https://youtu.be/8q82Z1LFkdQ?si=Thjntcp5Hok0Bb1H
 **Last Updated**: December 2025
